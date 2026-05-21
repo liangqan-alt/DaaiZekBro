@@ -27,27 +27,28 @@ struct ExerciseLoggingView: View {
     var body: some View {
         Group {
             if let session, let exercise {
-                List {
-                    Section {
-                        LabeledContent("模板", value: displayName(for: session))
-                        LabeledContent("默认休息", value: "\(exercise.defaultRestSeconds) 秒")
-                    }
+                ScrollView {
+                    VStack(alignment: .leading, spacing: DZMetric.sectionSpacing) {
+                        metadataSection(session: session, exercise: exercise)
 
-                    if let restTimerState = restTimer.state {
-                        restTimerSection(restTimerState)
-                    } else {
-                        if exercise.isUnilateral {
-                            sideSection
+                        if let restTimerState = restTimer.state {
+                            restTimerSection(restTimerState)
+                        } else {
+                            if exercise.isUnilateral {
+                                sideSection
+                            }
+
+                            referenceSection
+                            inputSection
+                            rpeSection
+                            completionSection(for: exercise)
                         }
 
-                        referenceSection
-                        inputSection
-                        rpeSection
-                        completionSection(for: exercise)
+                        recordedSetsSection(for: exercise)
                     }
-
-                    recordedSetsSection(for: exercise)
+                    .padding(DZMetric.contentPadding)
                 }
+                .dzScreenBackground()
             } else {
                 ContentUnavailableView(
                     "记录页不可用",
@@ -212,42 +213,56 @@ struct ExerciseLoggingView: View {
             .first
     }
 
-    private var sideSection: some View {
-        Section {
-            Picker("侧别", selection: $selectedSide) {
-                Text("左").tag(Side.left)
-                Text("右").tag(Side.right)
-            }
-            .pickerStyle(.segmented)
-            .disabled(sidePrompt != nil)
-            .accessibilityIdentifier("side-picker")
+    private func metadataSection(session: WorkoutSession, exercise: Exercise) -> some View {
+        DZSection {
+            DZInfoRow("模板", value: displayName(for: session))
+            DZDivider()
+            DZInfoRow("默认休息", value: "\(exercise.defaultRestSeconds) 秒", showsValueAsNumber: true)
+        }
+    }
 
-            if let sidePrompt {
-                Text(sidePrompt)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+    private var sideSection: some View {
+        DZSection("侧别") {
+            VStack(alignment: .leading, spacing: 8) {
+                Picker("侧别", selection: $selectedSide) {
+                    Text("左").tag(Side.left)
+                    Text("右").tag(Side.right)
+                }
+                .pickerStyle(.segmented)
+                .tint(DZColor.pump500)
+                .disabled(sidePrompt != nil)
+                .accessibilityIdentifier("side-picker")
+
+                if let sidePrompt {
+                    Text(sidePrompt)
+                        .font(.footnote)
+                        .foregroundStyle(DZColor.ink700)
+                }
             }
+            .padding(14)
         }
     }
 
     private var referenceSection: some View {
-        Section {
+        DZSection("参考") {
             if let lastReferenceSet {
                 let sidePrefix = currentSide.map { "（\(displayName(for: $0))）" } ?? ""
 
-                LabeledContent(
+                DZInfoRow(
                     "上次\(sidePrefix)",
-                    value: "\(displayWeight(lastReferenceSet.weight)) kg × \(lastReferenceSet.reps)"
+                    value: "\(displayWeight(lastReferenceSet.weight)) kg × \(lastReferenceSet.reps)",
+                    showsValueAsNumber: true
                 )
             } else {
                 Text("暂无上次记录")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DZColor.ink700)
+                    .padding(14)
             }
         }
     }
 
     private var inputSection: some View {
-        Section("本组") {
+        DZSection("本组") {
             NumericEntryRow(
                 title: "重量",
                 unit: "kg",
@@ -257,20 +272,28 @@ struct ExerciseLoggingView: View {
                 increment: { adjustWeight(by: 2.5) }
             )
 
+            DZDivider()
+
             HStack {
                 Button("-2.5") {
                     adjustWeight(by: -2.5)
                 }
+                .buttonStyle(DZPillButtonStyle())
 
                 Button("+2.5") {
                     adjustWeight(by: 2.5)
                 }
+                .buttonStyle(DZPillButtonStyle())
 
                 Button("+5") {
                     adjustWeight(by: 5)
                 }
+                .buttonStyle(DZPillButtonStyle())
             }
-            .buttonStyle(.bordered)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+
+            DZDivider()
 
             NumericEntryRow(
                 title: "次数",
@@ -284,69 +307,99 @@ struct ExerciseLoggingView: View {
     }
 
     private var rpeSection: some View {
-        Section {
-            DisclosureGroup("RPE（可选）", isExpanded: $isRPEExpanded) {
-                HStack {
-                    ForEach(WorkoutSetLogging.allowedRPEValues, id: \.self) { rpe in
-                        Button {
-                            selectedRPE = selectedRPE == rpe ? nil : rpe
-                        } label: {
-                            Text("\(rpe)")
-                                .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(.bordered)
-                        .tint(selectedRPE == rpe ? .accentColor : nil)
-                        .accessibilityIdentifier("rpe-\(rpe)")
-                    }
+        DZSection {
+            Button {
+                withAnimation(.easeOut(duration: 0.18)) {
+                    isRPEExpanded.toggle()
                 }
+            } label: {
+                HStack {
+                    Text("RPE（可选）")
+                        .foregroundStyle(DZColor.ink900)
+
+                    if let selectedRPE {
+                        Text("\(selectedRPE)")
+                            .dzNumeric(size: 15, weight: .bold)
+                            .foregroundStyle(DZColor.pump500)
+                    }
+
+                    Spacer()
+
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(DZColor.fgFaint)
+                        .rotationEffect(.degrees(isRPEExpanded ? 90 : 0))
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+            }
+            .buttonStyle(.plain)
+
+            if isRPEExpanded {
+                DZDivider()
+
+                DZRPEPicker(values: WorkoutSetLogging.allowedRPEValues, selection: $selectedRPE)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
 
                 if selectedRPE != nil {
+                    DZDivider()
+
                     Button("清除 RPE", role: .destructive) {
                         selectedRPE = nil
                     }
+                    .foregroundStyle(DZColor.skull500)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
                 }
-            }
-
-            if let selectedRPE {
-                LabeledContent("当前 RPE", value: "\(selectedRPE)")
             }
         }
     }
 
     private func completionSection(for exercise: Exercise) -> some View {
-        Section {
+        DZSection {
             Button(action: completeSet) {
                 Text(completionButtonTitle(for: exercise))
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(DZPrimaryButtonStyle())
             .disabled(canCompleteSet == false)
             .accessibilityIdentifier("complete-set-button")
+            .padding(14)
         }
     }
 
     private func restTimerSection(_ state: RestTimerState) -> some View {
-        Section {
+        DZSection("休息计时 · Rest") {
             RestTimerView(
                 state: state,
                 addThirtySeconds: extendRestTimer,
                 skip: skipRestTimer
             )
+            .padding(16)
         }
     }
 
     private func recordedSetsSection(for exercise: Exercise) -> some View {
-        Section("已记录组") {
+        DZSection("已记录组") {
             if loggedSets.isEmpty {
                 Text("暂无记录")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DZColor.ink700)
+                    .padding(14)
             } else if exercise.isUnilateral {
-                HStack(alignment: .top, spacing: 16) {
+                HStack(alignment: .top, spacing: 12) {
                     RecordedSetColumn(title: "左", sets: leftSets, onDelete: confirmDelete)
                     RecordedSetColumn(title: "右", sets: rightSets, onDelete: confirmDelete)
                 }
+                .padding(8)
             } else {
-                ForEach(bilateralSets) { set in
+                ForEach(bilateralSets.indices, id: \.self) { index in
+                    if index > 0 {
+                        DZDivider()
+                    }
+
+                    let set = bilateralSets[index]
+
                     LoggedSetButton(set: set, showsSide: false) {
                         confirmDelete(set)
                     }
@@ -530,30 +583,41 @@ private struct NumericEntryRow: View {
     let increment: () -> Void
 
     var body: some View {
-        HStack {
+        HStack(spacing: 10) {
             Text(title)
+                .foregroundStyle(DZColor.ink900)
 
             Spacer()
 
             Button(action: decrement) {
                 Image(systemName: "minus.circle")
+                    .font(.title3)
+                    .foregroundStyle(DZColor.ink700)
             }
             .buttonStyle(.plain)
 
             TextField("必填", text: $text)
                 .keyboardType(keyboardType)
                 .multilineTextAlignment(.trailing)
+                .font(.system(.body, design: .monospaced))
+                .monospacedDigit()
+                .foregroundStyle(DZColor.ink900)
                 .frame(width: 80)
                 .accessibilityIdentifier("\(title)-field")
 
             Text(unit)
-                .foregroundStyle(.secondary)
+                .font(.subheadline)
+                .foregroundStyle(DZColor.ink700)
 
             Button(action: increment) {
                 Image(systemName: "plus.circle")
+                    .font(.title3)
+                    .foregroundStyle(DZColor.ink700)
             }
             .buttonStyle(.plain)
         }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
     }
 }
 
@@ -565,18 +629,33 @@ private struct RecordedSetColumn: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .font(.subheadline.weight(.semibold))
+                .font(.caption.weight(.bold))
+                .foregroundStyle(DZColor.ink700)
+                .textCase(.uppercase)
+                .padding(.horizontal, 6)
 
             if sets.isEmpty {
                 Text("暂无")
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DZColor.fgFaint)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 8)
             } else {
-                ForEach(sets) { set in
-                    LoggedSetButton(set: set, showsSide: false) {
-                        onDelete(set)
+                VStack(spacing: 0) {
+                    ForEach(sets.indices, id: \.self) { index in
+                        if index > 0 {
+                            DZDivider()
+                        }
+
+                        let set = sets[index]
+
+                        LoggedSetButton(set: set, showsSide: false) {
+                            onDelete(set)
+                        }
                     }
                 }
+                .background(DZColor.cream50)
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -590,16 +669,23 @@ private struct LoggedSetButton: View {
 
     var body: some View {
         Button(action: onDelete) {
-            HStack {
+            HStack(spacing: 10) {
+                DZLoggedSetBadge(index: set.setIndex)
+
                 Text(rowTitle)
+                    .dzNumeric(size: 14)
+                    .foregroundStyle(DZColor.ink900)
 
                 Spacer()
 
                 if let rpe = set.rpe {
                     Text("RPE \(rpe)")
-                        .foregroundStyle(.secondary)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(DZColor.ink700)
                 }
             }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 9)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -608,7 +694,7 @@ private struct LoggedSetButton: View {
     private var rowTitle: String {
         let sideText = showsSide ? set.side.map { "\(displayName(for: $0)) " } ?? "" : ""
 
-        return "\(sideText)组\(set.setIndex) \(displayWeight(set.weight)) kg × \(set.reps)"
+        return "\(sideText)\(displayWeight(set.weight)) kg × \(set.reps)"
     }
 }
 

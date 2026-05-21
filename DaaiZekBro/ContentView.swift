@@ -92,43 +92,43 @@ struct TemplateListView: View {
     @State private var errorMessage: String?
 
     private let columns = [
-        GridItem(.flexible(), spacing: 12),
-        GridItem(.flexible(), spacing: 12),
+        GridItem(.flexible(), spacing: 10),
+        GridItem(.flexible(), spacing: 10),
     ]
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: DZMetric.sectionSpacing) {
                 if let currentOpenSession {
                     continueButton(for: currentOpenSession)
                 }
 
-                LazyVGrid(columns: columns, spacing: 12) {
+                LazyVGrid(columns: columns, spacing: 10) {
                     ForEach(orderedTemplates) { template in
-                        Button {
+                        DZTemplateCard(
+                            name: template.name,
+                            exerciseCount: template.exercises.count
+                        ) {
                             startOrResolveConflict(for: template)
-                        } label: {
-                            VStack(alignment: .leading, spacing: 10) {
-                                Text(template.name)
-                                    .font(.headline)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                                Text("\(template.exercises.count) 个动作")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                            }
-                            .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
-                            .padding()
                         }
-                        .buttonStyle(.bordered)
                         .accessibilityIdentifier("template-\(template.name)")
                     }
                 }
             }
-            .padding()
+            .padding(DZMetric.contentPadding)
         }
+        .dzScreenBackground()
         .navigationTitle("训练模板")
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Image("daaizeibro-logo")
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 32, height: 32)
+                    .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    .accessibilityHidden(true)
+            }
+
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink(value: AppRoute.settings) {
                     Image(systemName: "gearshape")
@@ -210,21 +210,26 @@ struct TemplateListView: View {
 
                         TimelineView(.periodic(from: Date(), by: 1)) { timeline in
                             Text("已 \(durationText(from: session.startedAt, to: timeline.date))")
+                                .monospacedDigit()
                         }
                     }
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DZColor.fgOnPump.opacity(0.85))
                 }
 
                 Spacer()
 
                 Image(systemName: "chevron.right")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DZColor.fgOnPump.opacity(0.85))
             }
-            .padding()
+            .foregroundStyle(DZColor.fgOnPump)
+            .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .background(DZColor.pump500)
+            .clipShape(RoundedRectangle(cornerRadius: DZMetric.radius, style: .continuous))
+            .shadow(color: DZColor.ink900.opacity(0.12), radius: 12, x: 0, y: 6)
         }
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(.plain)
     }
 
     private func startOrResolveConflict(for template: Template) {
@@ -314,32 +319,40 @@ struct CurrentWorkoutView: View {
     var body: some View {
         Group {
             if let session {
-                List {
-                    Section {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: DZMetric.sectionSpacing) {
                         header(for: session)
-                    }
 
-                    Section("动作") {
-                        if exercises.isEmpty {
-                            Text("未找到模板动作")
-                                .foregroundStyle(.secondary)
-                        } else {
-                            ForEach(exercises) { exercise in
-                                NavigationLink(
-                                    value: AppRoute.exerciseLogging(
-                                        sessionID: sessionID,
-                                        exerciseName: exercise.name
-                                    )
-                                ) {
-                                    ExerciseRow(
-                                        exercise: exercise,
-                                        recordedSetCount: setCounts[exercise.name, default: 0]
-                                    )
+                        DZSection("动作") {
+                            if exercises.isEmpty {
+                                Text("未找到模板动作")
+                                    .foregroundStyle(DZColor.ink700)
+                                    .padding(14)
+                            } else {
+                                ForEach(Array(exercises.enumerated()), id: \.element.name) { index, exercise in
+                                    if index > 0 {
+                                        DZDivider()
+                                    }
+
+                                    NavigationLink(
+                                        value: AppRoute.exerciseLogging(
+                                            sessionID: sessionID,
+                                            exerciseName: exercise.name
+                                        )
+                                    ) {
+                                        ExerciseRow(
+                                            exercise: exercise,
+                                            recordedSetCount: setCounts[exercise.name, default: 0]
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
                                 }
                             }
                         }
                     }
+                    .padding(DZMetric.contentPadding)
                 }
+                .dzScreenBackground()
                 .navigationTitle(displayName(for: session))
                 .toolbar {
                     ToolbarItemGroup(placement: .topBarTrailing) {
@@ -377,6 +390,7 @@ struct CurrentWorkoutView: View {
                 )
             }
         }
+        .background(DZColor.cream50.ignoresSafeArea())
         .alert(
             "操作失败",
             isPresented: Binding(
@@ -430,16 +444,25 @@ struct CurrentWorkoutView: View {
 
     private func header(for session: WorkoutSession) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(displayName(for: session))
-                .font(.headline)
+            Text("本次训练 · Session")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(DZColor.ink700)
+                .textCase(.uppercase)
 
-            TimelineView(.periodic(from: Date(), by: 1)) { timeline in
-                LabeledContent(
-                    "已持续",
-                    value: durationText(from: session.startedAt, to: session.endedAt ?? timeline.date)
-                )
+            HStack(alignment: .lastTextBaseline, spacing: 12) {
+                TimelineView(.periodic(from: Date(), by: 1)) { timeline in
+                    Text(durationText(from: session.startedAt, to: session.endedAt ?? timeline.date))
+                        .dzNumeric(size: 32, weight: .bold)
+                }
+
+                Text("已持续")
+                    .font(.subheadline)
+                    .foregroundStyle(DZColor.ink700)
             }
         }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .dzCardStyle()
     }
 
     private func endWorkout(_ session: WorkoutSession) {
@@ -472,18 +495,26 @@ private struct ExerciseRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(exercise.name)
                     .font(.body)
+                    .foregroundStyle(DZColor.ink900)
 
-                Text("休息 \(exercise.defaultRestSeconds) 秒")
+                Text("休息 \(exercise.defaultRestSeconds) 秒\(exercise.isUnilateral ? " · 单侧" : "")")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(DZColor.ink700)
             }
 
             Spacer()
 
             Text("\(recordedSetCount) 组")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .dzNumeric(size: 15)
+                .foregroundStyle(recordedSetCount > 0 ? DZColor.pump500 : DZColor.ink700)
+
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(DZColor.fgFaint)
         }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .contentShape(Rectangle())
     }
 }
 

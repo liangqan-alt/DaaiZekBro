@@ -249,24 +249,30 @@ struct RestTimerView: View {
 
             ZStack {
                 Circle()
-                    .stroke(.quaternary, lineWidth: 12)
+                    .fill(DZColor.cream50)
+                    .shadow(color: DZColor.ink900.opacity(0.10), radius: 16, x: 0, y: 8)
+
+                Circle()
+                    .stroke(DZColor.cream300, lineWidth: 12)
+                    .padding(10)
 
                 Circle()
                     .trim(from: 0, to: state.progress)
                     .stroke(
-                        .tint,
+                        DZColor.pump500,
                         style: StrokeStyle(lineWidth: 12, lineCap: .round)
                     )
                     .rotationEffect(.degrees(-90))
+                    .padding(10)
 
                 VStack(spacing: 4) {
                     Text(formattedTime(state.remainingSeconds))
-                        .font(.system(size: 36, weight: .semibold, design: .rounded))
-                        .monospacedDigit()
+                        .dzNumeric(size: 36, weight: .bold)
+                        .foregroundStyle(DZColor.ink900)
 
                     Text("休息 \(state.totalSeconds) 秒")
                         .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(DZColor.ink700)
                 }
             }
             .frame(width: 148, height: 148)
@@ -275,11 +281,11 @@ struct RestTimerView: View {
 
             HStack {
                 Button("+30 秒", action: addThirtySeconds)
-                    .buttonStyle(.bordered)
+                    .buttonStyle(DZSecondaryButtonStyle())
                     .accessibilityIdentifier("extend-rest-timer-button")
 
                 Button("跳过", role: .destructive, action: skip)
-                    .buttonStyle(.bordered)
+                    .buttonStyle(DZDestructiveButtonStyle())
                     .accessibilityIdentifier("skip-rest-timer-button")
             }
         }
@@ -292,12 +298,12 @@ struct RestTimerView: View {
         case .notificationsDisabled:
             Text("未开启通知，仅前台显示")
                 .font(.footnote)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(DZColor.ink700)
                 .frame(maxWidth: .infinity, alignment: .leading)
         case .failed:
             Text("通知调度失败，仅前台显示")
                 .font(.footnote)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(DZColor.ink700)
                 .frame(maxWidth: .infinity, alignment: .leading)
         case .pendingPermission, .scheduled:
             EmptyView()

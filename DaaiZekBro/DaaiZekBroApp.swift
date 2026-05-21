@@ -32,6 +32,7 @@ struct DaaiZekBroApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView(notificationRouter: notificationRouter)
+                .tint(DZColor.pump500)
                 .onAppear {
                     appDelegate.notificationRouter = notificationRouter
                 }

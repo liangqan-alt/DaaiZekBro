@@ -7,27 +7,50 @@ struct SettingsView: View {
     @State private var errorMessage: String?
 
     var body: some View {
-        List {
-            Section {
-                Button {
-                    exportURL = nil
-                    isShowingExportSheet = true
-                } label: {
-                    Label("导出 CSV", systemImage: "doc.badge.arrow.up")
+        ScrollView {
+            VStack(alignment: .leading, spacing: DZMetric.sectionSpacing) {
+                DZSection(footer: "可按全部、最近日期或自定义日期范围导出训练 CSV。") {
+                    Button {
+                        exportURL = nil
+                        isShowingExportSheet = true
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "doc.badge.arrow.up")
+                                .foregroundStyle(DZColor.pump500)
+
+                            Text("导出 CSV")
+                                .foregroundStyle(DZColor.ink900)
+
+                            Spacer()
+
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(DZColor.fgFaint)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("export-csv-button")
                 }
-                .accessibilityIdentifier("export-csv-button")
-            } footer: {
-                Text("可按全部、最近日期或自定义日期范围导出训练 CSV。")
-            }
 
-            Section("负重口径") {
-                Text("统一记录杠面或机器显示的数字；哑铃记录单只重量，自重动作记录 0，负重自重动作记录所加负重。")
-            }
+                DZSection("负重口径") {
+                    Text("统一记录杠面或机器显示的数字；哑铃记录单只重量，自重动作记录 0，负重自重动作记录所加负重。")
+                        .foregroundStyle(DZColor.ink900)
+                        .lineSpacing(2)
+                        .padding(14)
+                }
 
-            Section("单侧动作") {
-                Text("单侧动作左右各记录一行，side 分别为 left 与 right；左右组号独立编号，双侧动作 side 留空。")
+                DZSection("单侧动作") {
+                    Text("单侧动作左右各记录一行，side 分别为 left 与 right；左右组号独立编号，双侧动作 side 留空。")
+                        .foregroundStyle(DZColor.ink900)
+                        .lineSpacing(2)
+                        .padding(14)
+                }
             }
+            .padding(DZMetric.contentPadding)
         }
+        .dzScreenBackground()
         .navigationTitle("设置")
         .sheet(isPresented: $isShowingExportSheet) {
             CSVExportSheet(
@@ -66,49 +89,14 @@ private struct CSVExportSheet: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                Section("时间范围") {
-                    Picker("时间范围", selection: $selectedOption) {
-                        ForEach(CSVExportRangeOption.allCases) { option in
-                            Text(option.title).tag(option)
-                        }
-                    }
-                    .pickerStyle(.inline)
-                    .accessibilityIdentifier("csv-export-range-picker")
-
-                    if selectedOption == .custom {
-                        DatePicker("起始日期", selection: $customStartDate, displayedComponents: .date)
-                            .accessibilityIdentifier("csv-export-start-date")
-                        DatePicker("结束日期", selection: $customEndDate, displayedComponents: .date)
-                            .accessibilityIdentifier("csv-export-end-date")
-                    }
+            ScrollView {
+                VStack(alignment: .leading, spacing: DZMetric.sectionSpacing) {
+                    rangeSection
+                    exportSection
                 }
-
-                Section {
-                    if let exportURL {
-                        ShareLink(item: exportURL) {
-                            Label("分享 CSV", systemImage: "square.and.arrow.up")
-                        }
-                        .accessibilityIdentifier("share-csv-link")
-                    } else {
-                        Button {
-                            prepareExport()
-                        } label: {
-                            Label("生成 CSV", systemImage: "doc.badge.arrow.up")
-                        }
-                        .disabled(exportDisabledReason != nil)
-                        .accessibilityIdentifier("generate-csv-button")
-                    }
-                } footer: {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(footerText)
-
-                        if let exportDisabledReason {
-                            Text(exportDisabledReason)
-                        }
-                    }
-                }
+                .padding(DZMetric.contentPadding)
             }
+            .dzScreenBackground()
             .navigationTitle("导出 CSV")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -129,6 +117,83 @@ private struct CSVExportSheet: View {
             }
             .onChange(of: dataVersion) { _, _ in
                 clearPreparedExport()
+            }
+        }
+    }
+
+    private var rangeSection: some View {
+        DZSection("时间范围") {
+            VStack(spacing: 0) {
+                ForEach(CSVExportRangeOption.allCases) { option in
+                    Button {
+                        selectedOption = option
+                    } label: {
+                        HStack {
+                            Text(option.title)
+                                .foregroundStyle(DZColor.ink900)
+
+                            Spacer()
+
+                            if selectedOption == option {
+                                Image(systemName: "checkmark")
+                                    .font(.body.weight(.semibold))
+                                    .foregroundStyle(DZColor.pump500)
+                            }
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+
+                    if option != CSVExportRangeOption.allCases.last {
+                        DZDivider()
+                    }
+                }
+            }
+            .accessibilityIdentifier("csv-export-range-picker")
+
+            if selectedOption == .custom {
+                DZDivider()
+
+                DatePicker("起始日期", selection: $customStartDate, displayedComponents: .date)
+                    .foregroundStyle(DZColor.ink900)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .accessibilityIdentifier("csv-export-start-date")
+
+                DZDivider()
+
+                DatePicker("结束日期", selection: $customEndDate, displayedComponents: .date)
+                    .foregroundStyle(DZColor.ink900)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .accessibilityIdentifier("csv-export-end-date")
+            }
+        }
+    }
+
+    private var exportSection: some View {
+        DZSection(footer: exportFooterText) {
+            if let exportURL {
+                ShareLink(item: exportURL) {
+                    Label("分享 CSV", systemImage: "square.and.arrow.up")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(DZPrimaryButtonStyle())
+                .padding(14)
+                .accessibilityIdentifier("share-csv-link")
+            } else {
+                Button {
+                    prepareExport()
+                } label: {
+                    Label("生成 CSV", systemImage: "doc.badge.arrow.up")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(DZPrimaryButtonStyle())
+                .disabled(exportDisabledReason != nil)
+                .padding(14)
+                .accessibilityIdentifier("generate-csv-button")
             }
         }
     }
@@ -167,6 +232,14 @@ private struct CSVExportSheet: View {
 
             return "无法读取该时间范围的训练"
         }
+    }
+
+    private var exportFooterText: String {
+        if let exportDisabledReason {
+            return "\(footerText)\n\(exportDisabledReason)"
+        }
+
+        return footerText
     }
 
     private var exportDisabledReason: String? {
