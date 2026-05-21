@@ -427,36 +427,6 @@ struct CurrentWorkoutView: View {
     }
 }
 
-struct ExerciseLoggingView: View {
-    let sessionID: UUID
-    let exerciseName: String
-    @Query private var sessions: [WorkoutSession]
-
-    var body: some View {
-        List {
-            Section {
-                LabeledContent("动作", value: exerciseName)
-                LabeledContent("模板", value: sessionTemplateName)
-                LabeledContent("Session", value: sessionID.uuidString)
-            }
-
-            Section {
-                Text("记录页将在 PR-03 实现。")
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .navigationTitle(exerciseName)
-    }
-
-    private var sessionTemplateName: String {
-        guard let session = sessions.first(where: { $0.id == sessionID }) else {
-            return "未知"
-        }
-
-        return displayName(for: session)
-    }
-}
-
 private struct ExerciseRow: View {
     let exercise: Exercise
     let recordedSetCount: Int

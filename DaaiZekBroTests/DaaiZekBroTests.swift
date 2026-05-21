@@ -227,6 +227,401 @@ struct DaaiZekBroTests {
         #expect(counts["上斜推胸机"] == 1)
     }
 
+    @Test func bilateralRecordingUsesTemplateOrderAndContinuousSetIndexes() throws {
+        let context = try makeInMemoryContext()
+        try SeedData.writeAndDedup(in: context)
+        let template = try template(named: "Push A", in: context)
+        let exercise = try exercise(named: "固定器械推肩", in: context)
+        let session = try WorkoutSessionLifecycle.createSession(for: template, in: context)
+
+        let firstSet = try WorkoutSetLogging.recordSet(
+            sessionID: session.id,
+            exerciseName: exercise.name,
+            weight: 30,
+            reps: 8,
+            rpe: nil,
+            side: nil,
+            completedAt: Date(timeIntervalSince1970: 100),
+            in: context
+        )
+        let secondSet = try WorkoutSetLogging.recordSet(
+            sessionID: session.id,
+            exerciseName: exercise.name,
+            weight: 32.5,
+            reps: 7,
+            rpe: 8,
+            side: nil,
+            completedAt: Date(timeIntervalSince1970: 200),
+            in: context
+        )
+
+        let savedSets = try WorkoutSetLogging.sets(
+            sessionID: session.id,
+            exerciseName: exercise.name,
+            side: nil,
+            in: context
+        )
+
+        #expect(firstSet.exerciseOrderIndex == 2)
+        #expect(secondSet.exerciseOrderIndex == 2)
+        #expect(savedSets.map(\.setIndex) == [1, 2])
+        #expect(savedSets.map(\.side) == [nil, nil])
+        #expect(savedSets.map(\.exerciseNameSnapshot) == [exercise.name, exercise.name])
+    }
+
+    @Test func exerciseOrderIndexFallsBackToTemplateNameSnapshot() throws {
+        let context = try makeInMemoryContext()
+        try SeedData.writeAndDedup(in: context)
+        let template = try template(named: "Push A", in: context)
+        let exercise = try exercise(named: "固定器械推肩", in: context)
+        let session = try WorkoutSessionLifecycle.createSession(for: template, in: context)
+
+        session.template = nil
+        try context.save()
+
+        let set = try WorkoutSetLogging.recordSet(
+            sessionID: session.id,
+            exerciseName: exercise.name,
+            weight: 30,
+            reps: 8,
+            rpe: nil,
+            side: nil,
+            in: context
+        )
+
+        #expect(set.exerciseOrderIndex == 2)
+    }
+
+    @Test func unilateralHalfSetRecoveryAndSameSidePrefill() throws {
+        let context = try makeInMemoryContext()
+        try SeedData.writeAndDedup(in: context)
+        let template = try template(named: "Legs A", in: context)
+        let exercise = try exercise(named: "跪姿单腿腿弯举", in: context)
+        let session = try WorkoutSessionLifecycle.createSession(for: template, in: context)
+
+        #expect(try WorkoutSetLogging.inferredNextSide(
+            sessionID: session.id,
+            exerciseName: exercise.name,
+            in: context
+        ) == .left)
+
+        let leftSet = try WorkoutSetLogging.recordSet(
+            sessionID: session.id,
+            exerciseName: exercise.name,
+            weight: 24.9,
+            reps: 12,
+            rpe: nil,
+            side: .left,
+            completedAt: Date(timeIntervalSince1970: 100),
+            in: context
+        )
+
+        #expect(leftSet.setIndex == 1)
+        #expect(try WorkoutSetLogging.inferredNextSide(
+            sessionID: session.id,
+            exerciseName: exercise.name,
+            in: context
+        ) == .right)
+        #expect(try WorkoutSetLogging.lastValues(
+            exerciseName: exercise.name,
+            side: .left,
+            in: context
+        ) == WorkoutSetValues(weight: 24.9, reps: 12))
+        #expect(try WorkoutSetLogging.lastValues(
+            exerciseName: exercise.name,
+            side: .right,
+            in: context
+        ) == nil)
+
+        let rightSet = try WorkoutSetLogging.recordSet(
+            sessionID: session.id,
+            exerciseName: exercise.name,
+            weight: 22.5,
+            reps: 10,
+            rpe: 9,
+            side: .right,
+            completedAt: Date(timeIntervalSince1970: 200),
+            in: context
+        )
+
+        #expect(rightSet.setIndex == 1)
+        #expect(try WorkoutSetLogging.inferredNextSide(
+            sessionID: session.id,
+            exerciseName: exercise.name,
+            in: context
+        ) == .left)
+        #expect(try WorkoutSetLogging.lastValues(
+            exerciseName: exercise.name,
+            side: .right,
+            in: context
+        ) == WorkoutSetValues(weight: 22.5, reps: 10))
+    }
+
+    @Test func unilateralRecoveryFallsBackToLeftWhenRightSideHasExtraSet() throws {
+        let context = try makeInMemoryContext()
+        try SeedData.writeAndDedup(in: context)
+        let template = try template(named: "Legs A", in: context)
+        let exercise = try exercise(named: "跪姿单腿腿弯举", in: context)
+        let session = try WorkoutSessionLifecycle.createSession(for: template, in: context)
+
+        _ = try WorkoutSetLogging.recordSet(
+            sessionID: session.id,
+            exerciseName: exercise.name,
+            weight: 22.5,
+            reps: 10,
+            rpe: nil,
+            side: .right,
+            completedAt: Date(timeIntervalSince1970: 100),
+            in: context
+        )
+
+        #expect(try WorkoutSetLogging.sideCounts(
+            sessionID: session.id,
+            exerciseName: exercise.name,
+            in: context
+        ) == WorkoutSideCounts(left: 0, right: 1))
+        #expect(try WorkoutSetLogging.inferredNextSide(
+            sessionID: session.id,
+            exerciseName: exercise.name,
+            in: context
+        ) == .left)
+    }
+
+    @Test func deletingBilateralSetRenumbersRemainingSetsByCompletedAt() throws {
+        let context = try makeInMemoryContext()
+        try SeedData.writeAndDedup(in: context)
+        let template = try template(named: "Push A", in: context)
+        let exercise = try exercise(named: "固定器械卧推", in: context)
+        let session = try WorkoutSessionLifecycle.createSession(for: template, in: context)
+
+        _ = try WorkoutSetLogging.recordSet(
+            sessionID: session.id,
+            exerciseName: exercise.name,
+            weight: 30,
+            reps: 8,
+            rpe: nil,
+            side: nil,
+            completedAt: Date(timeIntervalSince1970: 100),
+            in: context
+        )
+        let deletedSet = try WorkoutSetLogging.recordSet(
+            sessionID: session.id,
+            exerciseName: exercise.name,
+            weight: 32.5,
+            reps: 7,
+            rpe: nil,
+            side: nil,
+            completedAt: Date(timeIntervalSince1970: 200),
+            in: context
+        )
+        _ = try WorkoutSetLogging.recordSet(
+            sessionID: session.id,
+            exerciseName: exercise.name,
+            weight: 35,
+            reps: 6,
+            rpe: nil,
+            side: nil,
+            completedAt: Date(timeIntervalSince1970: 300),
+            in: context
+        )
+
+        try WorkoutSetLogging.deleteAndRenumber(deletedSet, in: context)
+
+        let remainingSets = try WorkoutSetLogging.sets(
+            sessionID: session.id,
+            exerciseName: exercise.name,
+            side: nil,
+            in: context
+        )
+
+        #expect(remainingSets.map(\.weight) == [30, 35])
+        #expect(remainingSets.map(\.setIndex) == [1, 2])
+    }
+
+    @Test func deletingUnilateralSetRenumbersOnlyThatSide() throws {
+        let context = try makeInMemoryContext()
+        try SeedData.writeAndDedup(in: context)
+        let template = try template(named: "Legs A", in: context)
+        let exercise = try exercise(named: "跪姿单腿腿弯举", in: context)
+        let session = try WorkoutSessionLifecycle.createSession(for: template, in: context)
+
+        _ = try WorkoutSetLogging.recordSet(
+            sessionID: session.id,
+            exerciseName: exercise.name,
+            weight: 20,
+            reps: 12,
+            rpe: nil,
+            side: .left,
+            completedAt: Date(timeIntervalSince1970: 100),
+            in: context
+        )
+        _ = try WorkoutSetLogging.recordSet(
+            sessionID: session.id,
+            exerciseName: exercise.name,
+            weight: 21,
+            reps: 12,
+            rpe: nil,
+            side: .right,
+            completedAt: Date(timeIntervalSince1970: 110),
+            in: context
+        )
+        let deletedLeftSet = try WorkoutSetLogging.recordSet(
+            sessionID: session.id,
+            exerciseName: exercise.name,
+            weight: 22,
+            reps: 10,
+            rpe: nil,
+            side: .left,
+            completedAt: Date(timeIntervalSince1970: 200),
+            in: context
+        )
+        _ = try WorkoutSetLogging.recordSet(
+            sessionID: session.id,
+            exerciseName: exercise.name,
+            weight: 23,
+            reps: 10,
+            rpe: nil,
+            side: .right,
+            completedAt: Date(timeIntervalSince1970: 210),
+            in: context
+        )
+        _ = try WorkoutSetLogging.recordSet(
+            sessionID: session.id,
+            exerciseName: exercise.name,
+            weight: 24,
+            reps: 8,
+            rpe: nil,
+            side: .left,
+            completedAt: Date(timeIntervalSince1970: 300),
+            in: context
+        )
+
+        try WorkoutSetLogging.deleteAndRenumber(deletedLeftSet, in: context)
+
+        let leftSets = try WorkoutSetLogging.sets(
+            sessionID: session.id,
+            exerciseName: exercise.name,
+            side: .left,
+            in: context
+        )
+        let rightSets = try WorkoutSetLogging.sets(
+            sessionID: session.id,
+            exerciseName: exercise.name,
+            side: .right,
+            in: context
+        )
+
+        #expect(leftSets.map(\.weight) == [20, 24])
+        #expect(leftSets.map(\.setIndex) == [1, 2])
+        #expect(rightSets.map(\.weight) == [21, 23])
+        #expect(rightSets.map(\.setIndex) == [1, 2])
+    }
+
+    @Test func rpeValidationAllowsOnlyIntegerSixThroughTen() throws {
+        let context = try makeInMemoryContext()
+        try SeedData.writeAndDedup(in: context)
+        let template = try template(named: "Push A", in: context)
+        let exercise = try exercise(named: "固定器械卧推", in: context)
+        let session = try WorkoutSessionLifecycle.createSession(for: template, in: context)
+
+        #expect(WorkoutSetLogging.allowedRPEValues == [6, 7, 8, 9, 10])
+
+        _ = try WorkoutSetLogging.recordSet(
+            sessionID: session.id,
+            exerciseName: exercise.name,
+            weight: 30,
+            reps: 8,
+            rpe: nil,
+            side: nil,
+            in: context
+        )
+        _ = try WorkoutSetLogging.recordSet(
+            sessionID: session.id,
+            exerciseName: exercise.name,
+            weight: 30,
+            reps: 8,
+            rpe: 6,
+            side: nil,
+            in: context
+        )
+        _ = try WorkoutSetLogging.recordSet(
+            sessionID: session.id,
+            exerciseName: exercise.name,
+            weight: 30,
+            reps: 8,
+            rpe: 10,
+            side: nil,
+            in: context
+        )
+
+        for invalidRPE in [5, 11, 75] {
+            var didThrowInvalidRPE = false
+
+            do {
+                _ = try WorkoutSetLogging.recordSet(
+                    sessionID: session.id,
+                    exerciseName: exercise.name,
+                    weight: 30,
+                    reps: 8,
+                    rpe: invalidRPE,
+                    side: nil,
+                    in: context
+                )
+            } catch WorkoutSetLoggingError.invalidRPE(let value) {
+                didThrowInvalidRPE = value == invalidRPE
+            }
+
+            #expect(didThrowInvalidRPE)
+        }
+    }
+
+    @Test func setIndexesAndDeletionAreIsolatedAcrossSessions() throws {
+        let context = try makeInMemoryContext()
+        try SeedData.writeAndDedup(in: context)
+        let template = try template(named: "Push A", in: context)
+        let exercise = try exercise(named: "固定器械卧推", in: context)
+        let oldSession = try WorkoutSessionLifecycle.createSession(for: template, in: context)
+        let oldSet = try WorkoutSetLogging.recordSet(
+            sessionID: oldSession.id,
+            exerciseName: exercise.name,
+            weight: 30,
+            reps: 8,
+            rpe: nil,
+            side: nil,
+            completedAt: Date(timeIntervalSince1970: 100),
+            in: context
+        )
+
+        try WorkoutSessionLifecycle.end(oldSession, in: context)
+
+        let currentSession = try WorkoutSessionLifecycle.createSession(for: template, in: context)
+        let currentSet = try WorkoutSetLogging.recordSet(
+            sessionID: currentSession.id,
+            exerciseName: exercise.name,
+            weight: 32.5,
+            reps: 7,
+            rpe: nil,
+            side: nil,
+            completedAt: Date(timeIntervalSince1970: 200),
+            in: context
+        )
+
+        #expect(oldSet.setIndex == 1)
+        #expect(currentSet.setIndex == 1)
+
+        try WorkoutSetLogging.deleteAndRenumber(oldSet, in: context)
+
+        let currentSets = try WorkoutSetLogging.sets(
+            sessionID: currentSession.id,
+            exerciseName: exercise.name,
+            side: nil,
+            in: context
+        )
+
+        #expect(currentSets.map(\.weight) == [32.5])
+        #expect(currentSets.map(\.setIndex) == [1])
+    }
+
     private func makeInMemoryContext() throws -> ModelContext {
         let schema = Schema([
             Exercise.self,
