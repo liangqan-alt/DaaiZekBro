@@ -15,6 +15,7 @@ enum AppRoute: Hashable {
 }
 
 struct ContentView: View {
+    @ObservedObject var notificationRouter: NotificationNavigationRouter
     @Environment(\.modelContext) private var modelContext
     @State private var path: [AppRoute] = []
     @State private var seedStatus: SeedStatus = .loading
@@ -48,6 +49,12 @@ struct ContentView: View {
             .task {
                 await writeSeedData()
             }
+            .onChange(of: seedStatus) { _, _ in
+                routePendingRestNotificationIfReady()
+            }
+            .onReceive(notificationRouter.$pendingRestNotification) { _ in
+                routePendingRestNotificationIfReady()
+            }
         }
     }
 
@@ -59,6 +66,20 @@ struct ContentView: View {
         } catch {
             seedStatus = .failed(error.localizedDescription)
         }
+    }
+
+    private func routePendingRestNotificationIfReady() {
+        guard seedStatus == .ready, let payload = notificationRouter.pendingRestNotification else {
+            return
+        }
+
+        do {
+            path = try NotificationNavigationResolver.route(for: payload, in: modelContext)
+        } catch {
+            path.removeAll()
+        }
+
+        notificationRouter.consume(payload)
     }
 }
 
@@ -485,7 +506,7 @@ private func durationText(from startDate: Date, to endDate: Date) -> String {
 }
 
 #Preview {
-    ContentView()
+    ContentView(notificationRouter: NotificationNavigationRouter())
         .modelContainer(
             for: [Exercise.self, Template.self, WorkoutSession.self, WorkoutSet.self],
             inMemory: true

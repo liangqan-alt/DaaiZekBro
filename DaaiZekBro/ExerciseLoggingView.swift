@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import SwiftUI
 import SwiftData
@@ -19,7 +20,9 @@ struct ExerciseLoggingView: View {
     @State private var pendingDeleteSet: WorkoutSet?
     @State private var errorMessage: String?
     @State private var didLoadInitialDraft = false
-    @State private var restStartSignal: RestStartSignal?
+    @StateObject private var restTimer = RestTimerModel()
+    @State private var timerMutationTask: Task<Void, Never>?
+    private let restTimerTicker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
         Group {
@@ -30,14 +33,19 @@ struct ExerciseLoggingView: View {
                         LabeledContent("默认休息", value: "\(exercise.defaultRestSeconds) 秒")
                     }
 
-                    if exercise.isUnilateral {
-                        sideSection
+                    if let restTimerState = restTimer.state {
+                        restTimerSection(restTimerState)
+                    } else {
+                        if exercise.isUnilateral {
+                            sideSection
+                        }
+
+                        referenceSection
+                        inputSection
+                        rpeSection
+                        completionSection(for: exercise)
                     }
 
-                    referenceSection
-                    inputSection
-                    rpeSection
-                    completionSection(for: exercise)
                     recordedSetsSection(for: exercise)
                 }
             } else {
@@ -56,6 +64,14 @@ struct ExerciseLoggingView: View {
         }
         .onChange(of: sideBalanceKey) { _, _ in
             syncSideWithRecordedSets()
+        }
+        .onReceive(restTimerTicker) { date in
+            guard restTimer.tick(now: date) else { return }
+
+            finishRestTimer()
+        }
+        .onDisappear {
+            restTimer.stopForegroundTimerKeepingNotification()
         }
         .confirmationDialog(
             "删除这组记录？",
@@ -290,12 +306,16 @@ struct ExerciseLoggingView: View {
             .buttonStyle(.borderedProminent)
             .disabled(canCompleteSet == false)
             .accessibilityIdentifier("complete-set-button")
+        }
+    }
 
-            if let restStartSignal {
-                Text("已触发 \(restStartSignal.restSeconds) 秒休息计时")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
+    private func restTimerSection(_ state: RestTimerState) -> some View {
+        Section {
+            RestTimerView(
+                state: state,
+                addThirtySeconds: extendRestTimer,
+                skip: skipRestTimer
+            )
         }
     }
 
@@ -390,24 +410,66 @@ struct ExerciseLoggingView: View {
                 in: modelContext
             )
 
-            if exercise.isUnilateral, selectedSide == .left {
-                restStartSignal = nil
-                selectedSide = .right
-            } else {
-                restStartSignal = RestStartSignal(
-                    restSeconds: exercise.defaultRestSeconds,
-                    startedAt: savedSet.completedAt
-                )
+            let completedSide = exercise.isUnilateral ? selectedSide : nil
+
+            if RestTimerStartPolicy.shouldStartAfterCompletedSet(
+                isUnilateral: exercise.isUnilateral,
+                completedSide: completedSide
+            ) {
+                startRestTimer(restSeconds: exercise.defaultRestSeconds, startedAt: savedSet.completedAt)
 
                 if exercise.isUnilateral {
                     selectedSide = .left
                 }
+            } else if exercise.isUnilateral {
+                restTimer.stopForegroundTimerKeepingNotification()
+                selectedSide = .right
             }
 
             prefillFromLastSet()
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func startRestTimer(restSeconds: Int, startedAt: Date) {
+        performTimerMutation {
+            await restTimer.start(
+                restSeconds: restSeconds,
+                sessionID: sessionID,
+                exerciseName: exerciseName,
+                startedAt: startedAt
+            )
+        }
+    }
+
+    private func extendRestTimer() {
+        performTimerMutation {
+            await restTimer.addThirtySeconds()
+        }
+    }
+
+    private func skipRestTimer() {
+        restTimer.stopForegroundTimerKeepingNotification()
+        performTimerMutation {
+            await restTimer.skip()
+        }
+        finishRestTimer()
+    }
+
+    private func performTimerMutation(_ operation: @escaping @MainActor () async -> Void) {
+        timerMutationTask?.cancel()
+        timerMutationTask = Task { @MainActor in
+            await operation()
+        }
+    }
+
+    private func finishRestTimer() {
+        if exercise?.isUnilateral == true {
+            selectedSide = .left
+        }
+
+        prefillFromLastSet()
     }
 
     private func completionButtonTitle(for exercise: Exercise) -> String {
@@ -532,11 +594,6 @@ private struct LoggedSetButton: View {
 
         return "\(sideText)组\(set.setIndex) \(displayWeight(set.weight)) kg × \(set.reps)"
     }
-}
-
-private struct RestStartSignal: Equatable {
-    let restSeconds: Int
-    let startedAt: Date
 }
 
 private func displayName(for session: WorkoutSession) -> String {

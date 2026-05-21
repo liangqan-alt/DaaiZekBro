@@ -10,6 +10,9 @@ import SwiftData
 
 @main
 struct DaaiZekBroApp: App {
+    @UIApplicationDelegateAdaptor(NotificationAppDelegate.self) private var appDelegate
+    @StateObject private var notificationRouter = NotificationNavigationRouter()
+
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
             Exercise.self,
@@ -28,7 +31,10 @@ struct DaaiZekBroApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ContentView(notificationRouter: notificationRouter)
+                .onAppear {
+                    appDelegate.notificationRouter = notificationRouter
+                }
         }
         .modelContainer(sharedModelContainer)
     }
