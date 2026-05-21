@@ -3,13 +3,99 @@ import SwiftData
 
 enum CSVExporterError: Error, LocalizedError, Equatable {
     case invalidTimeZoneIdentifier(String)
+    case invalidDateRange
+    case noDataInRange
 
     var errorDescription: String? {
         switch self {
         case .invalidTimeZoneIdentifier(let identifier):
             "训练记录的时区无效：\(identifier)"
+        case .invalidDateRange:
+            "结束日期不能早于起始日期"
+        case .noDataInRange:
+            "该时间范围内暂无训练"
         }
     }
+}
+
+enum CSVExportRange: Equatable {
+    case full
+    case last7Days
+    case last30Days
+    case custom(startDate: Date, endDate: Date)
+
+    func resolved(now: Date = Date(), calendar: Calendar = .current) throws -> CSVResolvedExportRange {
+        switch self {
+        case .full:
+            return .full
+        case .last7Days:
+            return try resolvedRecentRange(dayCount: 7, now: now, calendar: calendar)
+        case .last30Days:
+            return try resolvedRecentRange(dayCount: 30, now: now, calendar: calendar)
+        case .custom(let startDate, let endDate):
+            return try resolvedCustomRange(startDate: startDate, endDate: endDate, calendar: calendar)
+        }
+    }
+
+    private func resolvedRecentRange(
+        dayCount: Int,
+        now: Date,
+        calendar: Calendar
+    ) throws -> CSVResolvedExportRange {
+        let endDay = calendar.startOfDay(for: now)
+
+        guard let startDay = calendar.date(byAdding: .day, value: -(dayCount - 1), to: endDay),
+              let endExclusive = calendar.date(byAdding: .day, value: 1, to: endDay) else {
+            throw CSVExporterError.invalidDateRange
+        }
+
+        return .bounded(startDate: startDay, endDate: endDay, endExclusive: endExclusive)
+    }
+
+    private func resolvedCustomRange(
+        startDate: Date,
+        endDate: Date,
+        calendar: Calendar
+    ) throws -> CSVResolvedExportRange {
+        let startDay = calendar.startOfDay(for: startDate)
+        let endDay = calendar.startOfDay(for: endDate)
+
+        guard startDay <= endDay,
+              let endExclusive = calendar.date(byAdding: .day, value: 1, to: endDay) else {
+            throw CSVExporterError.invalidDateRange
+        }
+
+        return .bounded(startDate: startDay, endDate: endDay, endExclusive: endExclusive)
+    }
+}
+
+struct CSVResolvedExportRange: Equatable {
+    let startDate: Date?
+    let endDate: Date?
+    let endExclusive: Date?
+
+    static let full = CSVResolvedExportRange(startDate: nil, endDate: nil, endExclusive: nil)
+
+    static func bounded(startDate: Date, endDate: Date, endExclusive: Date) -> CSVResolvedExportRange {
+        CSVResolvedExportRange(startDate: startDate, endDate: endDate, endExclusive: endExclusive)
+    }
+
+    var isFull: Bool {
+        startDate == nil
+    }
+
+    func contains(_ date: Date) -> Bool {
+        guard let startDate, let endExclusive else {
+            return true
+        }
+
+        return date >= startDate && date < endExclusive
+    }
+}
+
+struct CSVExportSummary: Equatable {
+    let sessionCount: Int
+    let setCount: Int
 }
 
 @MainActor
@@ -37,16 +123,86 @@ final class CSVExporter {
     private static let byteOrderMark = "\u{FEFF}"
 
     static func csvString(in context: ModelContext) throws -> String {
+        try csvString(in: context, resolvedRange: .full)
+    }
+
+    static func csvString(
+        in context: ModelContext,
+        range: CSVExportRange,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) throws -> String {
+        try csvString(in: context, resolvedRange: try range.resolved(now: now, calendar: calendar))
+    }
+
+    static func summary(
+        in context: ModelContext,
+        range: CSVExportRange,
+        now: Date = Date(),
+        calendar: Calendar = .current
+    ) throws -> CSVExportSummary {
+        let resolvedRange = try range.resolved(now: now, calendar: calendar)
+        let rows = try exportRows(in: context, resolvedRange: resolvedRange)
+        let sessionIDs = Set(rows.map { $0.session.id })
+
+        return CSVExportSummary(sessionCount: sessionIDs.count, setCount: rows.count)
+    }
+
+    static func exportFile(
+        in context: ModelContext,
+        range: CSVExportRange,
+        exportedAt: Date = Date(),
+        fileManager: FileManager = .default,
+        calendar: Calendar = .current
+    ) throws -> URL {
+        let resolvedRange = try range.resolved(now: exportedAt, calendar: calendar)
+        let rows = try exportRows(in: context, resolvedRange: resolvedRange)
+
+        guard rows.isEmpty == false else {
+            throw CSVExporterError.noDataInRange
+        }
+
+        let fileURL = fileManager.temporaryDirectory
+            .appendingPathComponent(fileName(for: resolvedRange, exportedAt: exportedAt, calendar: calendar))
+        let csvData = Data((byteOrderMark + csvString(from: rows)).utf8)
+
+        try csvData.write(to: fileURL, options: .atomic)
+
+        return fileURL
+    }
+
+    private static func csvString(in context: ModelContext, resolvedRange: CSVResolvedExportRange) throws -> String {
+        try csvString(from: exportRows(in: context, resolvedRange: resolvedRange))
+    }
+
+    private static func csvString(from rows: [CSVExportRow]) -> String {
+        var lines = [csvLine(columnNames)]
+
+        for row in rows {
+            lines.append(csvLine(fields(for: row.set, in: row.session, timeZone: row.timeZone)))
+        }
+
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    private static func exportRows(
+        in context: ModelContext,
+        resolvedRange: CSVResolvedExportRange
+    ) throws -> [CSVExportRow] {
         let sessions = try context.fetch(
             FetchDescriptor<WorkoutSession>(
                 sortBy: [SortDescriptor(\WorkoutSession.startedAt)]
             )
         )
         let allSets = try context.fetch(FetchDescriptor<WorkoutSet>())
-        var lines = [csvLine(columnNames)]
+        var rows: [CSVExportRow] = []
 
         for session in sessions {
-            let sessionSets = sortedSets(allSets.filter { $0.session?.id == session.id })
+            let sessionSets = sortedSets(
+                allSets.filter { set in
+                    set.session?.id == session.id && resolvedRange.contains(set.completedAt)
+                }
+            )
 
             guard sessionSets.isEmpty == false else {
                 continue
@@ -56,12 +212,10 @@ final class CSVExporter {
                 throw CSVExporterError.invalidTimeZoneIdentifier(session.timezoneIdentifier)
             }
 
-            for set in sessionSets {
-                lines.append(csvLine(fields(for: set, in: session, timeZone: timeZone)))
-            }
+            rows.append(contentsOf: sessionSets.map { CSVExportRow(session: session, set: $0, timeZone: timeZone) })
         }
 
-        return lines.joined(separator: "\n") + "\n"
+        return rows
     }
 
     static func exportFile(
@@ -77,6 +231,14 @@ final class CSVExporter {
         try csvData.write(to: fileURL, options: .atomic)
 
         return fileURL
+    }
+
+    static func fileName(
+        for range: CSVExportRange,
+        exportedAt: Date = Date(),
+        calendar: Calendar = .current
+    ) throws -> String {
+        try fileName(for: range.resolved(now: exportedAt, calendar: calendar), exportedAt: exportedAt, calendar: calendar)
     }
 
     private static func fields(
@@ -184,13 +346,46 @@ final class CSVExporter {
         return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
     }
 
+    private static func fileName(
+        for resolvedRange: CSVResolvedExportRange,
+        exportedAt: Date,
+        calendar: Calendar
+    ) -> String {
+        if resolvedRange.isFull {
+            return "gym_log_full_\(formatFileDate(exportedAt, calendar: calendar)).csv"
+        }
+
+        guard let startDate = resolvedRange.startDate, let endDate = resolvedRange.endDate else {
+            return "gym_log_full_\(formatFileDate(exportedAt, calendar: calendar)).csv"
+        }
+
+        let startText = formatFileDate(startDate, calendar: calendar)
+        let endText = formatFileDate(endDate, calendar: calendar)
+
+        if startText == endText {
+            return "gym_log_\(startText).csv"
+        }
+
+        return "gym_log_\(startText)_to_\(endText).csv"
+    }
+
     private static func fileName(exportedAt: Date, calendar: Calendar) -> String {
+        "gym_log_\(formatFileDate(exportedAt, calendar: calendar)).csv"
+    }
+
+    private static func formatFileDate(_ date: Date, calendar: Calendar) -> String {
         let formatter = DateFormatter()
         formatter.calendar = calendar
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = calendar.timeZone
         formatter.dateFormat = "yyyy-MM-dd"
 
-        return "gym_log_\(formatter.string(from: exportedAt)).csv"
+        return formatter.string(from: date)
     }
+}
+
+private struct CSVExportRow {
+    let session: WorkoutSession
+    let set: WorkoutSet
+    let timeZone: TimeZone
 }

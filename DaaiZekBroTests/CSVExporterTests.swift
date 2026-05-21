@@ -227,6 +227,334 @@ struct CSVExporterTests {
         #expect(csvBody?.hasPrefix(CSVExporter.columnNames.joined(separator: ",")) == true)
     }
 
+    @Test func fullRangeCSVStringMatchesExistingFullExport() throws {
+        let context = try makeInMemoryContext()
+        let timeZone = try requiredTimeZone("Asia/Shanghai")
+        let calendar = gregorianCalendar(timeZone: timeZone)
+        let now = try date(2026, 5, 21, 15, 0, 0, timeZone: timeZone)
+
+        _ = try recordSession(
+            templateName: "Push A",
+            exerciseName: "固定器械卧推",
+            startedAt: try date(2026, 5, 20, 9, 0, 0, timeZone: timeZone),
+            setCompletedAt: try date(2026, 5, 20, 9, 5, 0, timeZone: timeZone),
+            endedAt: try date(2026, 5, 20, 10, 0, 0, timeZone: timeZone),
+            timeZone: timeZone,
+            in: context
+        )
+
+        #expect(try rangedCSVString(in: context, range: .full, now: now, calendar: calendar) == CSVExporter.csvString(in: context))
+    }
+
+    @Test func last7DaysUsesCalendarDayBoundaries() throws {
+        let context = try makeInMemoryContext()
+        let timeZone = try requiredTimeZone("Asia/Shanghai")
+        let calendar = gregorianCalendar(timeZone: timeZone)
+        let now = try date(2026, 5, 21, 15, 0, 0, timeZone: timeZone)
+
+        _ = try recordSession(
+            templateName: "Push A",
+            exerciseName: "固定器械卧推",
+            startedAt: try date(2026, 5, 14, 23, 50, 0, timeZone: timeZone),
+            setCompletedAt: try date(2026, 5, 14, 23, 59, 59, timeZone: timeZone),
+            endedAt: try date(2026, 5, 15, 0, 10, 0, timeZone: timeZone),
+            timeZone: timeZone,
+            in: context
+        )
+        _ = try recordSession(
+            templateName: "Push A",
+            exerciseName: "固定器械卧推",
+            startedAt: try date(2026, 5, 15, 0, 0, 0, timeZone: timeZone),
+            setCompletedAt: try date(2026, 5, 15, 0, 0, 0, timeZone: timeZone),
+            endedAt: try date(2026, 5, 15, 0, 30, 0, timeZone: timeZone),
+            timeZone: timeZone,
+            in: context
+        )
+        _ = try recordSession(
+            templateName: "Push A",
+            exerciseName: "固定器械卧推",
+            startedAt: try date(2026, 5, 21, 23, 0, 0, timeZone: timeZone),
+            setCompletedAt: try date(2026, 5, 21, 23, 59, 59, timeZone: timeZone),
+            endedAt: try date(2026, 5, 22, 0, 5, 0, timeZone: timeZone),
+            timeZone: timeZone,
+            in: context
+        )
+
+        let rows = csvRecords(from: try rangedCSVString(in: context, range: .last7Days, now: now, calendar: calendar))
+            .dropFirst()
+
+        #expect(rows.map { $0[13] } == [
+            "2026-05-15T00:00:00+08:00",
+            "2026-05-21T23:59:59+08:00",
+        ])
+    }
+
+    @Test func last30DaysUsesCalendarDayBoundaries() throws {
+        let context = try makeInMemoryContext()
+        let timeZone = try requiredTimeZone("Asia/Shanghai")
+        let calendar = gregorianCalendar(timeZone: timeZone)
+        let now = try date(2026, 5, 21, 15, 0, 0, timeZone: timeZone)
+
+        _ = try recordSession(
+            templateName: "Push A",
+            exerciseName: "固定器械卧推",
+            startedAt: try date(2026, 4, 21, 23, 50, 0, timeZone: timeZone),
+            setCompletedAt: try date(2026, 4, 21, 23, 59, 59, timeZone: timeZone),
+            endedAt: try date(2026, 4, 22, 0, 10, 0, timeZone: timeZone),
+            timeZone: timeZone,
+            in: context
+        )
+        _ = try recordSession(
+            templateName: "Push A",
+            exerciseName: "固定器械卧推",
+            startedAt: try date(2026, 4, 22, 0, 0, 0, timeZone: timeZone),
+            setCompletedAt: try date(2026, 4, 22, 0, 0, 0, timeZone: timeZone),
+            endedAt: try date(2026, 4, 22, 0, 30, 0, timeZone: timeZone),
+            timeZone: timeZone,
+            in: context
+        )
+        _ = try recordSession(
+            templateName: "Push A",
+            exerciseName: "固定器械卧推",
+            startedAt: try date(2026, 5, 21, 21, 0, 0, timeZone: timeZone),
+            setCompletedAt: try date(2026, 5, 21, 21, 30, 0, timeZone: timeZone),
+            endedAt: try date(2026, 5, 21, 22, 0, 0, timeZone: timeZone),
+            timeZone: timeZone,
+            in: context
+        )
+
+        let rows = csvRecords(from: try rangedCSVString(in: context, range: .last30Days, now: now, calendar: calendar))
+            .dropFirst()
+
+        #expect(rows.map { $0[13] } == [
+            "2026-04-22T00:00:00+08:00",
+            "2026-05-21T21:30:00+08:00",
+        ])
+    }
+
+    @Test func customSameDayRangeUsesSingleDayFileName() throws {
+        let context = try makeInMemoryContext()
+        let timeZone = try requiredTimeZone("Asia/Shanghai")
+        let calendar = gregorianCalendar(timeZone: timeZone)
+        let day = try date(2026, 5, 21, 9, 0, 0, timeZone: timeZone)
+
+        _ = try recordSession(
+            templateName: "Push A",
+            exerciseName: "固定器械卧推",
+            startedAt: day,
+            setCompletedAt: try date(2026, 5, 21, 9, 5, 0, timeZone: timeZone),
+            endedAt: try date(2026, 5, 21, 10, 0, 0, timeZone: timeZone),
+            timeZone: timeZone,
+            in: context
+        )
+
+        let url = try rangedExportFile(
+            in: context,
+            range: .custom(startDate: day, endDate: day),
+            now: day,
+            exportedAt: try date(2026, 5, 21, 12, 0, 0, timeZone: timeZone),
+            calendar: calendar
+        )
+
+        #expect(url.lastPathComponent == "gym_log_2026-05-21.csv")
+    }
+
+    @Test func rangeFileNamesUseFullAndMultiDayFormats() throws {
+        let timeZone = try requiredTimeZone("Asia/Shanghai")
+        let calendar = gregorianCalendar(timeZone: timeZone)
+        let exportedAt = try date(2026, 5, 21, 12, 0, 0, timeZone: timeZone)
+
+        #expect(try CSVExporter.fileName(
+            for: .full,
+            exportedAt: exportedAt,
+            calendar: calendar
+        ) == "gym_log_full_2026-05-21.csv")
+        #expect(try CSVExporter.fileName(
+            for: .custom(
+                startDate: try date(2026, 5, 1, 0, 0, 0, timeZone: timeZone),
+                endDate: try date(2026, 5, 21, 0, 0, 0, timeZone: timeZone)
+            ),
+            exportedAt: exportedAt,
+            calendar: calendar
+        ) == "gym_log_2026-05-01_to_2026-05-21.csv")
+    }
+
+    @Test func emptyRangeExportFileThrowsWithoutCreatingFile() throws {
+        let context = try makeInMemoryContext()
+        let timeZone = try requiredTimeZone("Asia/Shanghai")
+        let calendar = gregorianCalendar(timeZone: timeZone)
+        let fileManager = FileManager.default
+        let beforeFileNames = try temporaryGymLogFileNames(fileManager: fileManager)
+
+        _ = try recordSession(
+            templateName: "Push A",
+            exerciseName: "固定器械卧推",
+            startedAt: try date(2026, 5, 20, 9, 0, 0, timeZone: timeZone),
+            setCompletedAt: try date(2026, 5, 20, 9, 5, 0, timeZone: timeZone),
+            endedAt: try date(2026, 5, 20, 10, 0, 0, timeZone: timeZone),
+            timeZone: timeZone,
+            in: context
+        )
+
+        var didThrow = false
+        do {
+            _ = try rangedExportFile(
+                in: context,
+                range: .custom(
+                    startDate: try date(2026, 6, 1, 0, 0, 0, timeZone: timeZone),
+                    endDate: try date(2026, 6, 1, 0, 0, 0, timeZone: timeZone)
+                ),
+                now: try date(2026, 6, 1, 12, 0, 0, timeZone: timeZone),
+                exportedAt: try date(2026, 6, 1, 12, 0, 0, timeZone: timeZone),
+                fileManager: fileManager,
+                calendar: calendar
+            )
+        } catch {
+            didThrow = true
+        }
+
+        #expect(didThrow)
+        #expect(try temporaryGymLogFileNames(fileManager: fileManager) == beforeFileNames)
+    }
+
+    @Test func customRangeFiltersCrossMidnightSessionBySetCompletedAt() throws {
+        let context = try makeInMemoryContext()
+        let timeZone = try requiredTimeZone("Asia/Shanghai")
+        let calendar = gregorianCalendar(timeZone: timeZone)
+
+        try SeedData.writeAndDedup(in: context)
+
+        let template = try template(named: "Push A", in: context)
+        let exercise = try exercise(named: "固定器械卧推", in: context)
+        let session = try WorkoutSessionLifecycle.createSession(
+            for: template,
+            in: context,
+            startedAt: try date(2026, 5, 20, 23, 50, 0, timeZone: timeZone),
+            timeZone: timeZone
+        )
+        _ = try WorkoutSetLogging.recordSet(
+            sessionID: session.id,
+            exerciseName: exercise.name,
+            weight: 30,
+            reps: 8,
+            rpe: nil,
+            side: nil,
+            completedAt: try date(2026, 5, 20, 23, 55, 0, timeZone: timeZone),
+            in: context
+        )
+        _ = try WorkoutSetLogging.recordSet(
+            sessionID: session.id,
+            exerciseName: exercise.name,
+            weight: 30,
+            reps: 8,
+            rpe: nil,
+            side: nil,
+            completedAt: try date(2026, 5, 21, 0, 5, 0, timeZone: timeZone),
+            in: context
+        )
+        try WorkoutSessionLifecycle.end(
+            session,
+            in: context,
+            endedAt: try date(2026, 5, 21, 0, 20, 0, timeZone: timeZone)
+        )
+
+        let records = csvRecords(from: try rangedCSVString(
+            in: context,
+            range: .custom(
+                startDate: try date(2026, 5, 21, 0, 0, 0, timeZone: timeZone),
+                endDate: try date(2026, 5, 21, 0, 0, 0, timeZone: timeZone)
+            ),
+            now: try date(2026, 5, 21, 12, 0, 0, timeZone: timeZone),
+            calendar: calendar
+        ))
+
+        #expect(records.dropFirst().map { $0[13] } == ["2026-05-21T00:05:00+08:00"])
+        #expect(records[1][2] == "2026-05-20T23:50:00+08:00")
+    }
+
+    @Test func rangeExportIncludesUnfinishedSessionWithBlankEndedAt() throws {
+        let context = try makeInMemoryContext()
+        let timeZone = try requiredTimeZone("Asia/Shanghai")
+        let calendar = gregorianCalendar(timeZone: timeZone)
+
+        _ = try recordSession(
+            templateName: "Push A",
+            exerciseName: "固定器械卧推",
+            startedAt: try date(2026, 5, 21, 9, 0, 0, timeZone: timeZone),
+            setCompletedAt: try date(2026, 5, 21, 9, 5, 0, timeZone: timeZone),
+            endedAt: nil,
+            timeZone: timeZone,
+            in: context
+        )
+
+        let records = csvRecords(from: try rangedCSVString(
+            in: context,
+            range: .last7Days,
+            now: try date(2026, 5, 21, 12, 0, 0, timeZone: timeZone),
+            calendar: calendar
+        ))
+
+        #expect(records[1][3] == "")
+    }
+
+    @Test func invalidCustomRangeThrows() throws {
+        let context = try makeInMemoryContext()
+        let timeZone = try requiredTimeZone("Asia/Shanghai")
+        let calendar = gregorianCalendar(timeZone: timeZone)
+
+        var didThrow = false
+        do {
+            _ = try rangedCSVString(
+                in: context,
+                range: .custom(
+                    startDate: try date(2026, 5, 22, 0, 0, 0, timeZone: timeZone),
+                    endDate: try date(2026, 5, 21, 0, 0, 0, timeZone: timeZone)
+                ),
+                now: try date(2026, 5, 21, 12, 0, 0, timeZone: timeZone),
+                calendar: calendar
+            )
+        } catch {
+            didThrow = true
+        }
+
+        #expect(didThrow)
+    }
+
+    @Test func exportSummaryCountsMatchCSVRows() throws {
+        let context = try makeInMemoryContext()
+        let timeZone = try requiredTimeZone("Asia/Shanghai")
+        let calendar = gregorianCalendar(timeZone: timeZone)
+        let now = try date(2026, 5, 21, 15, 0, 0, timeZone: timeZone)
+
+        _ = try recordSession(
+            templateName: "Push A",
+            exerciseName: "固定器械卧推",
+            startedAt: try date(2026, 5, 21, 9, 0, 0, timeZone: timeZone),
+            setCompletedAt: try date(2026, 5, 21, 9, 5, 0, timeZone: timeZone),
+            endedAt: try date(2026, 5, 21, 10, 0, 0, timeZone: timeZone),
+            timeZone: timeZone,
+            in: context
+        )
+        _ = try recordSession(
+            templateName: "Legs A",
+            exerciseName: "跪姿单腿腿弯举",
+            startedAt: try date(2026, 5, 21, 11, 0, 0, timeZone: timeZone),
+            setCompletedAt: try date(2026, 5, 21, 11, 5, 0, timeZone: timeZone),
+            endedAt: try date(2026, 5, 21, 12, 0, 0, timeZone: timeZone),
+            side: .left,
+            timeZone: timeZone,
+            in: context
+        )
+
+        let csv = try rangedCSVString(in: context, range: .last7Days, now: now, calendar: calendar)
+        let rows = csvRecords(from: csv).dropFirst()
+        let summaryCounts = try rangedSummaryCounts(in: context, range: .last7Days, now: now, calendar: calendar)
+
+        #expect(summaryCounts["rowCount"] == rows.count)
+        #expect(summaryCounts["setCount"] == rows.count)
+        #expect(summaryCounts["sessionCount"] == Set(rows.map { $0[1] }).count)
+    }
+
     @Test func csvStringThrowsOnInvalidSessionTimeZone() throws {
         let context = try makeInMemoryContext()
         let timeZone = try requiredTimeZone("Asia/Shanghai")
@@ -372,6 +700,103 @@ struct CSVExporterTests {
         }
 
         return timeZone
+    }
+
+    private func gregorianCalendar(timeZone: TimeZone) -> Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+
+        return calendar
+    }
+
+    private func recordSession(
+        templateName: String,
+        exerciseName: String,
+        startedAt: Date,
+        setCompletedAt: Date,
+        endedAt: Date?,
+        side: Side? = nil,
+        timeZone: TimeZone,
+        in context: ModelContext
+    ) throws -> WorkoutSession {
+        try SeedData.writeAndDedup(in: context)
+
+        let template = try template(named: templateName, in: context)
+        let exercise = try exercise(named: exerciseName, in: context)
+        let session = try WorkoutSessionLifecycle.createSession(
+            for: template,
+            in: context,
+            startedAt: startedAt,
+            timeZone: timeZone
+        )
+
+        _ = try WorkoutSetLogging.recordSet(
+            sessionID: session.id,
+            exerciseName: exercise.name,
+            weight: 30,
+            reps: 8,
+            rpe: nil,
+            side: side,
+            completedAt: setCompletedAt,
+            in: context
+        )
+
+        if let endedAt {
+            try WorkoutSessionLifecycle.end(session, in: context, endedAt: endedAt)
+        }
+
+        return session
+    }
+
+    private func temporaryGymLogFileNames(fileManager: FileManager) throws -> Set<String> {
+        Set(
+            try fileManager
+                .contentsOfDirectory(atPath: fileManager.temporaryDirectory.path)
+                .filter { $0.hasPrefix("gym_log_") && $0.hasSuffix(".csv") }
+        )
+    }
+
+    private func rangedCSVString(
+        in context: ModelContext,
+        range: CSVExportRange,
+        now: Date,
+        calendar: Calendar
+    ) throws -> String {
+        try CSVExporter.csvString(in: context, range: range, now: now, calendar: calendar)
+    }
+
+    private func rangedExportFile(
+        in context: ModelContext,
+        range: CSVExportRange,
+        now: Date,
+        exportedAt: Date,
+        fileManager: FileManager = .default,
+        calendar: Calendar
+    ) throws -> URL {
+        _ = now
+
+        return try CSVExporter.exportFile(
+            in: context,
+            range: range,
+            exportedAt: exportedAt,
+            fileManager: fileManager,
+            calendar: calendar
+        )
+    }
+
+    private func rangedSummaryCounts(
+        in context: ModelContext,
+        range: CSVExportRange,
+        now: Date,
+        calendar: Calendar
+    ) throws -> [String: Int] {
+        let summary = try CSVExporter.summary(in: context, range: range, now: now, calendar: calendar)
+
+        return [
+            "rowCount": summary.setCount,
+            "sessionCount": summary.sessionCount,
+            "setCount": summary.setCount,
+        ]
     }
 
     private func fetchTemplates(in context: ModelContext) throws -> [Template] {
