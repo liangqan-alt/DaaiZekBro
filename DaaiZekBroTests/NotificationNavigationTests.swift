@@ -42,6 +42,18 @@ struct NotificationNavigationTests {
         #expect(try NotificationNavigationResolver.route(for: payload, in: context) == [])
     }
 
+    @Test func notificationForExerciseOutsideSessionRoutesToCurrentWorkout() throws {
+        let context = try makeInMemoryContext()
+        try SeedData.writeAndDedup(in: context)
+        let template = try template(named: "Push A", in: context)
+        let session = try WorkoutSessionLifecycle.createSession(for: template, in: context)
+        let payload = RestNotificationPayload(sessionID: session.id, exerciseName: "跪姿单腿腿弯举")
+
+        #expect(try NotificationNavigationResolver.route(for: payload, in: context) == [
+            .currentWorkout(sessionID: session.id),
+        ])
+    }
+
     @Test func notificationForMissingSessionRoutesHome() throws {
         let context = try makeInMemoryContext()
         let payload = RestNotificationPayload(sessionID: UUID(), exerciseName: "固定器械卧推")

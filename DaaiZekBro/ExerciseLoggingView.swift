@@ -144,7 +144,23 @@ struct ExerciseLoggingView: View {
     }
 
     private var canCompleteSet: Bool {
-        session?.endedAt == nil && parsedWeight != nil && parsedReps != nil
+        session?.endedAt == nil && parsedWeight != nil && parsedReps != nil && selectedSideMatchesRecordedSets
+    }
+
+    private var selectedSideMatchesRecordedSets: Bool {
+        guard exercise?.isUnilateral == true else {
+            return true
+        }
+
+        if leftSets.count > rightSets.count {
+            return selectedSide == .right
+        }
+
+        if leftSets.count < rightSets.count {
+            return selectedSide == .left
+        }
+
+        return true
     }
 
     private var loggedSets: [WorkoutSet] {
@@ -395,7 +411,7 @@ struct ExerciseLoggingView: View {
     }
 
     private func completeSet() {
-        guard let weight = parsedWeight, let reps = parsedReps, let exercise else {
+        guard canCompleteSet, let weight = parsedWeight, let reps = parsedReps, let exercise else {
             return
         }
 
@@ -466,7 +482,7 @@ struct ExerciseLoggingView: View {
 
     private func finishRestTimer() {
         if exercise?.isUnilateral == true {
-            selectedSide = .left
+            syncSideWithRecordedSets()
         }
 
         prefillFromLastSet()

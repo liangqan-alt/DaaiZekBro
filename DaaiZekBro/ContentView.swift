@@ -263,6 +263,7 @@ struct TemplateListView: View {
         do {
             if let session = try WorkoutSessionLifecycle.currentOpenSession(in: modelContext) {
                 try WorkoutSessionLifecycle.end(session, in: modelContext)
+                UserNotificationRestScheduler.cancelPendingRestCompletionNotification()
             }
 
             let newSession = try WorkoutSessionLifecycle.createSession(for: template, in: modelContext)
@@ -282,6 +283,7 @@ struct TemplateListView: View {
         do {
             if let session = try WorkoutSessionLifecycle.currentOpenSession(in: modelContext) {
                 try WorkoutSessionLifecycle.discard(session, in: modelContext)
+                UserNotificationRestScheduler.cancelPendingRestCompletionNotification()
             }
 
             let newSession = try WorkoutSessionLifecycle.createSession(for: template, in: modelContext)
@@ -443,6 +445,7 @@ struct CurrentWorkoutView: View {
     private func endWorkout(_ session: WorkoutSession) {
         do {
             try WorkoutSessionLifecycle.end(session, in: modelContext)
+            UserNotificationRestScheduler.cancelPendingRestCompletionNotification()
             path.removeAll()
         } catch {
             errorMessage = error.localizedDescription
@@ -452,6 +455,7 @@ struct CurrentWorkoutView: View {
     private func discardWorkout(_ session: WorkoutSession) {
         do {
             try WorkoutSessionLifecycle.discard(session, in: modelContext)
+            UserNotificationRestScheduler.cancelPendingRestCompletionNotification()
             path.removeAll()
         } catch {
             errorMessage = error.localizedDescription

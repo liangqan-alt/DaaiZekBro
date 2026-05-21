@@ -387,6 +387,48 @@ struct DaaiZekBroTests {
         ) == .left)
     }
 
+    @Test func deletingCompletedRightSideInfersRightAsPendingSide() throws {
+        let context = try makeInMemoryContext()
+        try SeedData.writeAndDedup(in: context)
+        let template = try template(named: "Legs A", in: context)
+        let exercise = try exercise(named: "跪姿单腿腿弯举", in: context)
+        let session = try WorkoutSessionLifecycle.createSession(for: template, in: context)
+
+        _ = try WorkoutSetLogging.recordSet(
+            sessionID: session.id,
+            exerciseName: exercise.name,
+            weight: 20,
+            reps: 12,
+            rpe: nil,
+            side: .left,
+            completedAt: Date(timeIntervalSince1970: 100),
+            in: context
+        )
+        let deletedRightSet = try WorkoutSetLogging.recordSet(
+            sessionID: session.id,
+            exerciseName: exercise.name,
+            weight: 20,
+            reps: 11,
+            rpe: nil,
+            side: .right,
+            completedAt: Date(timeIntervalSince1970: 110),
+            in: context
+        )
+
+        try WorkoutSetLogging.deleteAndRenumber(deletedRightSet, in: context)
+
+        #expect(try WorkoutSetLogging.sideCounts(
+            sessionID: session.id,
+            exerciseName: exercise.name,
+            in: context
+        ) == WorkoutSideCounts(left: 1, right: 0))
+        #expect(try WorkoutSetLogging.inferredNextSide(
+            sessionID: session.id,
+            exerciseName: exercise.name,
+            in: context
+        ) == .right)
+    }
+
     @Test func deletingBilateralSetRenumbersRemainingSetsByCompletedAt() throws {
         let context = try makeInMemoryContext()
         try SeedData.writeAndDedup(in: context)
@@ -517,6 +559,82 @@ struct DaaiZekBroTests {
         #expect(rightSets.map(\.setIndex) == [1, 2])
     }
 
+    @Test func recordingSetInEndedSessionThrowsAndDoesNotInsertSet() throws {
+        let context = try makeInMemoryContext()
+        try SeedData.writeAndDedup(in: context)
+        let template = try template(named: "Push A", in: context)
+        let exercise = try exercise(named: "固定器械卧推", in: context)
+        let session = try WorkoutSessionLifecycle.createSession(for: template, in: context)
+
+        try WorkoutSessionLifecycle.end(session, in: context)
+
+        var didThrowEndedSession = false
+
+        do {
+            _ = try WorkoutSetLogging.recordSet(
+                sessionID: session.id,
+                exerciseName: exercise.name,
+                weight: 30,
+                reps: 8,
+                rpe: nil,
+                side: nil,
+                in: context
+            )
+        } catch WorkoutSetLoggingError.sessionAlreadyEnded {
+            didThrowEndedSession = true
+        }
+
+        #expect(didThrowEndedSession)
+        #expect(try fetchSets(in: context).isEmpty)
+    }
+
+    @Test func invalidSetInputDoesNotInsertSets() throws {
+        let context = try makeInMemoryContext()
+        try SeedData.writeAndDedup(in: context)
+        let template = try template(named: "Push A", in: context)
+        let exercise = try exercise(named: "固定器械卧推", in: context)
+        let session = try WorkoutSessionLifecycle.createSession(for: template, in: context)
+
+        for invalidWeight in [-1, Double.nan] {
+            var didThrowInvalidWeight = false
+
+            do {
+                _ = try WorkoutSetLogging.recordSet(
+                    sessionID: session.id,
+                    exerciseName: exercise.name,
+                    weight: invalidWeight,
+                    reps: 8,
+                    rpe: nil,
+                    side: nil,
+                    in: context
+                )
+            } catch WorkoutSetLoggingError.invalidWeight {
+                didThrowInvalidWeight = true
+            }
+
+            #expect(didThrowInvalidWeight)
+        }
+
+        var didThrowInvalidReps = false
+
+        do {
+            _ = try WorkoutSetLogging.recordSet(
+                sessionID: session.id,
+                exerciseName: exercise.name,
+                weight: 30,
+                reps: 0,
+                rpe: nil,
+                side: nil,
+                in: context
+            )
+        } catch WorkoutSetLoggingError.invalidReps {
+            didThrowInvalidReps = true
+        }
+
+        #expect(didThrowInvalidReps)
+        #expect(try fetchSets(in: context).isEmpty)
+    }
+
     @Test func rpeValidationAllowsOnlyIntegerSixThroughTen() throws {
         let context = try makeInMemoryContext()
         try SeedData.writeAndDedup(in: context)
@@ -573,6 +691,77 @@ struct DaaiZekBroTests {
 
             #expect(didThrowInvalidRPE)
         }
+    }
+
+    @Test func sideValidationMatchesExerciseKind() throws {
+        let context = try makeInMemoryContext()
+        try SeedData.writeAndDedup(in: context)
+        let template = try template(named: "Legs A", in: context)
+        let bilateralExercise = try exercise(named: "腿举机", in: context)
+        let unilateralExercise = try exercise(named: "跪姿单腿腿弯举", in: context)
+        let session = try WorkoutSessionLifecycle.createSession(for: template, in: context)
+
+        var didThrowMissingSide = false
+
+        do {
+            _ = try WorkoutSetLogging.recordSet(
+                sessionID: session.id,
+                exerciseName: unilateralExercise.name,
+                weight: 20,
+                reps: 12,
+                rpe: nil,
+                side: nil,
+                in: context
+            )
+        } catch WorkoutSetLoggingError.missingSideForUnilateralExercise {
+            didThrowMissingSide = true
+        }
+
+        var didThrowSideNotAllowed = false
+
+        do {
+            _ = try WorkoutSetLogging.recordSet(
+                sessionID: session.id,
+                exerciseName: bilateralExercise.name,
+                weight: 100,
+                reps: 10,
+                rpe: nil,
+                side: .left,
+                in: context
+            )
+        } catch WorkoutSetLoggingError.sideNotAllowedForBilateralExercise {
+            didThrowSideNotAllowed = true
+        }
+
+        #expect(didThrowMissingSide)
+        #expect(didThrowSideNotAllowed)
+        #expect(try fetchSets(in: context).isEmpty)
+    }
+
+    @Test func lastValuesUseSnapshotsWhenExerciseRelationshipIsMissing() throws {
+        let context = try makeInMemoryContext()
+        try SeedData.writeAndDedup(in: context)
+        let template = try template(named: "Push A", in: context)
+        let exercise = try exercise(named: "固定器械卧推", in: context)
+        let session = try WorkoutSessionLifecycle.createSession(for: template, in: context)
+        let set = try WorkoutSetLogging.recordSet(
+            sessionID: session.id,
+            exerciseName: exercise.name,
+            weight: 32.5,
+            reps: 7,
+            rpe: nil,
+            side: nil,
+            in: context
+        )
+
+        set.exercise = nil
+        try context.save()
+
+        #expect(try WorkoutSetLogging.lastValues(
+            exerciseName: exercise.name,
+            side: nil,
+            in: context
+        ) == WorkoutSetValues(weight: 32.5, reps: 7))
     }
 
     @Test func setIndexesAndDeletionAreIsolatedAcrossSessions() throws {

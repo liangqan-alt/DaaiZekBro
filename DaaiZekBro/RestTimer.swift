@@ -28,6 +28,11 @@ struct UserNotificationRestScheduler: RestNotificationScheduling {
         self.center = center
     }
 
+    static func cancelPendingRestCompletionNotification(center: UNUserNotificationCenter = .current()) {
+        center.removePendingNotificationRequests(withIdentifiers: [notificationIdentifier])
+        center.removeDeliveredNotifications(withIdentifiers: [notificationIdentifier])
+    }
+
     func replaceRestCompletionNotification(
         sessionID: UUID,
         exerciseName: String,
