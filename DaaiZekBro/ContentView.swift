@@ -11,6 +11,7 @@ import SwiftData
 enum AppRoute: Hashable {
     case currentWorkout(sessionID: UUID)
     case exerciseLogging(sessionID: UUID, exerciseName: String)
+    case settings
 }
 
 struct ContentView: View {
@@ -40,6 +41,8 @@ struct ContentView: View {
                     CurrentWorkoutView(sessionID: sessionID, path: $path)
                 case .exerciseLogging(let sessionID, let exerciseName):
                     ExerciseLoggingView(sessionID: sessionID, exerciseName: exerciseName)
+                case .settings:
+                    SettingsView()
                 }
             }
             .task {
@@ -104,6 +107,14 @@ struct TemplateListView: View {
             .padding()
         }
         .navigationTitle("训练模板")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink(value: AppRoute.settings) {
+                    Image(systemName: "gearshape")
+                }
+                .accessibilityLabel("设置")
+            }
+        }
         .confirmationDialog(
             "已有未结束的训练",
             isPresented: Binding(

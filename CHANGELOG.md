@@ -5,6 +5,14 @@
 
 ## [Unreleased]
 
+## [V0.3] - 2026-05-21
+
+### 新增
+- 增加 set-level CSV 导出器，支持全量导出非空训练 session、固定 16 列字段、UTF-8 BOM、ISO 8601 时区时间戳、CSV 字段转义和 `gym_log_YYYY-MM-DD.csv` 文件名。
+- 导出内容支持空 RPE、空 side、未结束 session 的空结束时间、单侧动作 `left` / `right` 标记，以及 `volume_kg_rep`、`e1rm_epley_kg` 衍生列。
+- 增加 Settings 屏与模板列表右上角设置入口，支持生成 CSV 后通过系统 ShareLink 分享，并展示负重口径与单侧动作记录说明。
+- 增加 CSV 导出测试，覆盖字段顺序、数据正确性、空 session 跳过、CSV 转义、BOM、文件名、单侧动作边界和无效时区错误。
+
 ## [V0.2] - 2026-05-21
 
 ### 新增
