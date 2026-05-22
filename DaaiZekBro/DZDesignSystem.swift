@@ -21,6 +21,29 @@ enum DZColor {
     static let fgOnPump = Color(hex: 0xFFFCF6)
     static let borderSoft = ink900.opacity(0.08)
     static let fgFaint = ink900.opacity(0.45)
+    static let pump300    = Color(hex: 0xF2A87B)
+    static let caramel500 = Color(hex: 0xB98655)
+    static let pr100      = Color(hex: 0xE2EED1)
+    static let pr600      = Color(hex: 0x426524)
+    static let skull600   = Color(hex: 0x8C2A1E)
+    static let rpeLow     = Color(hex: 0xB0C170)
+    static let rpeMid     = Color(hex: 0xE5B95C)
+}
+
+enum DZFont {
+    static func display(size: CGFloat) -> Font {
+        .custom("ArchivoBlack-Regular", size: size)
+    }
+
+    static func mono(size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        let name: String
+        switch weight {
+        case .bold: name = "JetBrainsMono-Bold"
+        case .semibold, .medium: name = "JetBrainsMono-Medium"
+        default: name = "JetBrainsMono-Regular"
+        }
+        return .custom(name, size: size)
+    }
 }
 
 enum DZMetric {
@@ -57,13 +80,8 @@ extension View {
 
     @ViewBuilder
     func dzNumeric(size: CGFloat? = nil, weight: Font.Weight = .semibold) -> some View {
-        if let size {
-            font(.system(size: size, weight: weight, design: .monospaced))
-                .monospacedDigit()
-        } else {
-            font(.system(.body, design: .monospaced).weight(weight))
-                .monospacedDigit()
-        }
+        font(DZFont.mono(size: size ?? 17, weight: weight))
+            .monospacedDigit()
     }
 }
 
@@ -259,7 +277,7 @@ struct DZTemplateCard: View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 16) {
                 Text(name)
-                    .font(.system(size: 22, weight: .black, design: .rounded))
+                    .font(DZFont.display(size: 22))
                     .foregroundStyle(DZColor.ink900)
                     .textCase(.uppercase)
                     .minimumScaleFactor(0.75)
@@ -321,8 +339,8 @@ struct DZRPEPicker: View {
                         .dzNumeric(size: 16, weight: .bold)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 10)
-                        .background(selection == rpe ? DZColor.pump500 : DZColor.cream50)
-                        .foregroundStyle(selection == rpe ? DZColor.fgOnPump : DZColor.ink900)
+                        .background(selection == rpe ? rpeFill(rpe) : DZColor.cream50)
+                        .foregroundStyle(selection == rpe ? rpeFg(rpe) : DZColor.ink900)
                         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                         .overlay(
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -333,6 +351,19 @@ struct DZRPEPicker: View {
                 .accessibilityIdentifier("rpe-\(rpe)")
             }
         }
+    }
+
+    private func rpeFill(_ rpe: Int) -> Color {
+        switch rpe {
+        case 6:     return DZColor.rpeLow
+        case 7, 8:  return DZColor.rpeMid
+        case 9:     return DZColor.pump500
+        default:    return DZColor.skull500
+        }
+    }
+
+    private func rpeFg(_ rpe: Int) -> Color {
+        rpe <= 8 ? DZColor.ink900 : DZColor.fgOnPump
     }
 }
 
