@@ -12,6 +12,7 @@ struct ExerciseLoggingView: View {
     @Query private var sessions: [WorkoutSession]
     @Query private var exercises: [Exercise]
     @Query private var sets: [WorkoutSet]
+    @AppStorage(WeightUnit.storageKey) private var weightUnitRawValue = WeightUnit.kilograms.rawValue
     @State private var viewModel = ExerciseLoggingViewModel()
     @State private var pendingDeleteSet: WorkoutSet?
     @StateObject private var restTimer = RestTimerModel()
@@ -53,7 +54,13 @@ struct ExerciseLoggingView: View {
         }
         .navigationTitle(exerciseName)
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear(perform: loadInitialDraft)
+        .onAppear {
+            syncWeightUnitPreference()
+            loadInitialDraft()
+        }
+        .onChange(of: weightUnitRawValue) { _, _ in
+            syncWeightUnitPreference()
+        }
         .onChange(of: viewModel.selectedSide) { _, _ in
             prefillFromLastSet()
         }
@@ -114,6 +121,17 @@ struct ExerciseLoggingView: View {
 
     private var currentSide: Side? {
         viewModel.currentSide(isUnilateral: exercise?.isUnilateral == true)
+    }
+
+    private var preferredWeightUnit: WeightUnit {
+        WeightUnit(rawValue: weightUnitRawValue) ?? .kilograms
+    }
+
+    private var weightUnitSelection: Binding<String> {
+        Binding(
+            get: { preferredWeightUnit.rawValue },
+            set: { weightUnitRawValue = $0 }
+        )
     }
 
     private var canCompleteSet: Bool {
@@ -209,7 +227,7 @@ struct ExerciseLoggingView: View {
 
                 DZInfoRow(
                     "上次\(sidePrefix)",
-                    value: "\(displayWeight(lastReferenceSet.weight)) kg × \(lastReferenceSet.reps)",
+                    value: "\(displayWeight(lastReferenceSet.weight, unit: preferredWeightUnit)) × \(lastReferenceSet.reps)",
                     showsValueAsNumber: true
                 )
             } else {
@@ -224,12 +242,25 @@ struct ExerciseLoggingView: View {
         DZSection("本组") {
             NumericEntryRow(
                 title: "重量",
-                unit: "kg",
+                unit: preferredWeightUnit.label,
                 text: $viewModel.weightText,
                 keyboardType: .decimalPad,
                 decrement: { viewModel.adjustWeight(by: -2.5) },
                 increment: { viewModel.adjustWeight(by: 2.5) }
             )
+
+            DZDivider()
+
+            Picker("重量单位", selection: weightUnitSelection) {
+                ForEach(WeightUnit.allCases, id: \.rawValue) { unit in
+                    Text(unit.label).tag(unit.rawValue)
+                }
+            }
+            .pickerStyle(.segmented)
+            .tint(DZColor.pump500)
+            .accessibilityIdentifier("weight-unit-picker")
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
 
             DZDivider()
 
@@ -347,8 +378,8 @@ struct ExerciseLoggingView: View {
                     .padding(14)
             } else if exercise.isUnilateral {
                 HStack(alignment: .top, spacing: 12) {
-                    RecordedSetColumn(title: "左", sets: leftSets, onDelete: confirmDelete)
-                    RecordedSetColumn(title: "右", sets: rightSets, onDelete: confirmDelete)
+                    RecordedSetColumn(title: "左", sets: leftSets, weightUnit: preferredWeightUnit, onDelete: confirmDelete)
+                    RecordedSetColumn(title: "右", sets: rightSets, weightUnit: preferredWeightUnit, onDelete: confirmDelete)
                 }
                 .padding(8)
             } else {
@@ -359,12 +390,16 @@ struct ExerciseLoggingView: View {
 
                     let set = bilateralSets[index]
 
-                    LoggedSetButton(set: set, showsSide: false) {
+                    LoggedSetButton(set: set, showsSide: false, weightUnit: preferredWeightUnit) {
                         confirmDelete(set)
                     }
                 }
             }
         }
+    }
+
+    private func syncWeightUnitPreference() {
+        viewModel.weightUnit = preferredWeightUnit
     }
 
     private func loadInitialDraft() {
@@ -405,7 +440,7 @@ struct ExerciseLoggingView: View {
     }
 
     private func completeSet() {
-        guard canCompleteSet, let weight = viewModel.parsedWeight, let reps = viewModel.parsedReps, let exercise else {
+        guard canCompleteSet, let weight = viewModel.parsedWeightKilograms, let reps = viewModel.parsedReps, let exercise else {
             return
         }
 
@@ -552,6 +587,7 @@ private struct NumericEntryRow: View {
 private struct RecordedSetColumn: View {
     let title: String
     let sets: [WorkoutSet]
+    let weightUnit: WeightUnit
     let onDelete: (WorkoutSet) -> Void
 
     var body: some View {
@@ -577,7 +613,7 @@ private struct RecordedSetColumn: View {
 
                         let set = sets[index]
 
-                        LoggedSetButton(set: set, showsSide: false) {
+                        LoggedSetButton(set: set, showsSide: false, weightUnit: weightUnit) {
                             onDelete(set)
                         }
                     }
@@ -593,6 +629,7 @@ private struct RecordedSetColumn: View {
 private struct LoggedSetButton: View {
     let set: WorkoutSet
     let showsSide: Bool
+    let weightUnit: WeightUnit
     let onDelete: () -> Void
 
     var body: some View {
@@ -622,7 +659,7 @@ private struct LoggedSetButton: View {
     private var rowTitle: String {
         let sideText = showsSide ? set.side.map { "\(displayName(for: $0)) " } ?? "" : ""
 
-        return "\(sideText)\(displayWeight(set.weight)) kg × \(set.reps)"
+        return "\(sideText)\(displayWeight(set.weight, unit: weightUnit)) × \(set.reps)"
     }
 }
 
@@ -643,10 +680,6 @@ private func displayName(for side: Side) -> String {
     }
 }
 
-private func displayWeight(_ weight: Double) -> String {
-    if weight.rounded() == weight {
-        return "\(Int(weight))"
-    }
-
-    return String(format: "%.1f", weight)
+private func displayWeight(_ kilograms: Double, unit: WeightUnit) -> String {
+    "\(WeightDisplay.text(forKilograms: kilograms, unit: unit)) \(unit.label)"
 }

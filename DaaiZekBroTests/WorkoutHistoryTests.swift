@@ -79,6 +79,19 @@ struct WorkoutHistoryTests {
         #expect(title == "2026-05-22 (五) · Push A (进行中) · 2组 · 1h 0m")
     }
 
+    @Test func setValueTextFormatsKilograms() {
+        let text = WorkoutHistoryDisplay.setValueText(weightKilograms: 45.4, reps: 8, unit: .kilograms)
+
+        #expect(text == "45.4 kg x 8")
+    }
+
+    @Test func setValueTextConvertsKilogramsToPounds() {
+        let kilograms = WeightUnit.pounds.kilograms(fromDisplayValue: 100)
+        let text = WorkoutHistoryDisplay.setValueText(weightKilograms: kilograms, reps: 8, unit: .pounds)
+
+        #expect(text == "100 lb x 8")
+    }
+
     private func date(
         _ year: Int,
         _ month: Int,

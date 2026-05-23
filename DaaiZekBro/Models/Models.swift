@@ -6,6 +6,53 @@ enum Side: String, Codable {
     case right
 }
 
+enum WeightUnit: String, CaseIterable, Codable, Identifiable {
+    case kilograms = "kg"
+    case pounds = "lb"
+
+    static let defaultUnit: WeightUnit = .kilograms
+    static let storageKey = "weightUnit"
+    private static let kilogramsPerPound = 0.453592
+
+    var id: String { rawValue }
+    var label: String { rawValue }
+
+    func displayValue(fromKilograms kilograms: Double) -> Double {
+        switch self {
+        case .kilograms:
+            return kilograms
+        case .pounds:
+            return kilograms / Self.kilogramsPerPound
+        }
+    }
+
+    func kilograms(fromDisplayValue displayValue: Double) -> Double {
+        switch self {
+        case .kilograms:
+            return displayValue
+        case .pounds:
+            return displayValue * Self.kilogramsPerPound
+        }
+    }
+}
+
+enum WeightDisplay {
+    static func text(_ value: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.numberStyle = .decimal
+        formatter.usesGroupingSeparator = false
+        formatter.minimumFractionDigits = value.rounded() == value ? 0 : 1
+        formatter.maximumFractionDigits = 1
+
+        return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
+    }
+
+    static func text(forKilograms kilograms: Double, unit: WeightUnit) -> String {
+        text(unit.displayValue(fromKilograms: kilograms))
+    }
+}
+
 @Model
 final class Exercise {
     var name: String = ""

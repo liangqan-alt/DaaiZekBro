@@ -225,14 +225,11 @@ enum WorkoutHistoryDisplay {
     }
 
     static func weightText(_ value: Double) -> String {
-        let formatter = NumberFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.numberStyle = .decimal
-        formatter.usesGroupingSeparator = false
-        formatter.minimumFractionDigits = value.rounded() == value ? 0 : 1
-        formatter.maximumFractionDigits = 1
+        WeightDisplay.text(value)
+    }
 
-        return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
+    static func setValueText(weightKilograms: Double, reps: Int, unit: WeightUnit) -> String {
+        "\(WeightDisplay.text(forKilograms: weightKilograms, unit: unit)) \(unit.label) x \(reps)"
     }
 
     static func sideText(_ side: Side) -> String {

@@ -11,25 +11,43 @@ struct ExerciseLoggingViewModelTests {
         viewModel.repsText = " 8 "
 
         #expect(viewModel.parsedWeight == 24.5)
+        #expect(viewModel.parsedWeightKilograms == 24.5)
         #expect(viewModel.parsedReps == 8)
 
         viewModel.weightText = ""
         viewModel.repsText = ""
 
         #expect(viewModel.parsedWeight == nil)
+        #expect(viewModel.parsedWeightKilograms == nil)
         #expect(viewModel.parsedReps == nil)
 
         viewModel.weightText = "-1"
         viewModel.repsText = "0"
 
         #expect(viewModel.parsedWeight == nil)
+        #expect(viewModel.parsedWeightKilograms == nil)
         #expect(viewModel.parsedReps == nil)
 
         viewModel.weightText = "inf"
         viewModel.repsText = "1.5"
 
         #expect(viewModel.parsedWeight == nil)
+        #expect(viewModel.parsedWeightKilograms == nil)
         #expect(viewModel.parsedReps == nil)
+    }
+
+    @Test func parsesDisplayWeightInSelectedUnitAndExposesKilograms() {
+        let viewModel = ExerciseLoggingViewModel()
+
+        #expect(viewModel.weightUnit == .kilograms)
+
+        viewModel.weightUnit = .pounds
+        viewModel.weightText = " 44,1 "
+        viewModel.repsText = " 8 "
+
+        #expect(viewModel.parsedWeight == 44.1)
+        #expect(abs((viewModel.parsedWeightKilograms ?? 0) - 20.0034072) < 0.000001)
+        #expect(viewModel.parsedReps == 8)
     }
 
     @Test func adjustersClampWeightAndReps() {
@@ -57,6 +75,21 @@ struct ExerciseLoggingViewModelTests {
         #expect(viewModel.repsText == "1")
     }
 
+    @Test func adjustWeightUsesSelectedDisplayUnit() {
+        let viewModel = ExerciseLoggingViewModel()
+
+        viewModel.weightUnit = .pounds
+        viewModel.weightText = "1"
+
+        viewModel.adjustWeight(by: 2.5)
+        #expect(viewModel.weightText == "3.5")
+        #expect(abs((viewModel.parsedWeightKilograms ?? 0) - 1.587572) < 0.000001)
+
+        viewModel.adjustWeight(by: -10)
+        #expect(viewModel.weightText == "0")
+        #expect(viewModel.parsedWeightKilograms == 0)
+    }
+
     @Test func applyPrefillClearsOrLoadsDraftValues() {
         let viewModel = ExerciseLoggingViewModel()
 
@@ -80,6 +113,43 @@ struct ExerciseLoggingViewModelTests {
 
         #expect(viewModel.weightText == "24")
         #expect(viewModel.repsText == "8")
+    }
+
+    @Test func applyPrefillConvertsKilogramsToSelectedDisplayUnit() {
+        let viewModel = ExerciseLoggingViewModel()
+
+        viewModel.weightUnit = .pounds
+        viewModel.selectedRPE = 9
+        viewModel.applyPrefill(WorkoutSetValues(weight: 22.5, reps: 12))
+
+        #expect(viewModel.weightText == "49.6")
+        #expect(viewModel.repsText == "12")
+        #expect(viewModel.selectedRPE == nil)
+    }
+
+    @Test func changingWeightUnitConvertsValidCurrentDraftText() {
+        let viewModel = ExerciseLoggingViewModel()
+
+        viewModel.weightText = "22.5"
+        viewModel.weightUnit = .pounds
+
+        #expect(viewModel.weightText == "49.6")
+        #expect(viewModel.parsedWeight == 49.6)
+
+        viewModel.weightUnit = .kilograms
+
+        #expect(viewModel.weightText == "22.5")
+    }
+
+    @Test func changingWeightUnitLeavesInvalidDraftTextAlone() {
+        let viewModel = ExerciseLoggingViewModel()
+
+        viewModel.weightText = "bad"
+        viewModel.weightUnit = .pounds
+
+        #expect(viewModel.weightText == "bad")
+        #expect(viewModel.parsedWeight == nil)
+        #expect(viewModel.parsedWeightKilograms == nil)
     }
 
     @Test func sidePromptBalanceAndCompletionGateReflectUnilateralCounts() {
@@ -109,6 +179,17 @@ struct ExerciseLoggingViewModelTests {
         viewModel.weightText = "20"
         viewModel.repsText = "0"
         #expect(viewModel.canCompleteSet(sessionEnded: false, isUnilateral: true, leftCount: 2, rightCount: 1) == false)
+    }
+
+    @Test func completionGateAcceptsValidWeightInSelectedUnit() {
+        let viewModel = ExerciseLoggingViewModel()
+
+        viewModel.weightUnit = .pounds
+        viewModel.weightText = "44.1"
+        viewModel.repsText = "10"
+        viewModel.selectedSide = .right
+
+        #expect(viewModel.canCompleteSet(sessionEnded: false, isUnilateral: true, leftCount: 2, rightCount: 1))
     }
 
     @Test func completionTitleUsesExerciseAndSelectedSide() {
