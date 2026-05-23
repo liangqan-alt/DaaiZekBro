@@ -309,7 +309,7 @@ struct ExerciseLoggingView: View {
     private var rpeSection: some View {
         DZSection {
             Button {
-                withAnimation(.easeOut(duration: 0.18)) {
+                withAnimation(DZMotion.fastEaseOut) {
                     isRPEExpanded.toggle()
                 }
             } label: {

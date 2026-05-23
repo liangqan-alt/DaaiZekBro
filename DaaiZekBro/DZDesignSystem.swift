@@ -47,10 +47,39 @@ enum DZFont {
 }
 
 enum DZMetric {
+    static let space1: CGFloat = 4
+    static let space2: CGFloat = 8
+    static let space3: CGFloat = 12
+    static let space4: CGFloat = 16
+    static let space5: CGFloat = 20
+    static let space6: CGFloat = 24
+    static let space8: CGFloat = 32
+    static let space10: CGFloat = 40
+    static let space12: CGFloat = 48
+    static let space16: CGFloat = 64
+
     static let radius: CGFloat = 14
+    static let radiusSM: CGFloat = 10
     static let pillRadius: CGFloat = 999
+
     static let sectionSpacing: CGFloat = 18
-    static let contentPadding: CGFloat = 16
+    static let contentPadding: CGFloat = space4
+    static let sectionHeaderPadding: CGFloat = space2
+    static let rowHorizontalPadding: CGFloat = 14
+    static let rowVerticalPadding: CGFloat = space3
+    static let rowSpacing: CGFloat = space3
+    static let infoTextSpacing: CGFloat = 3
+    static let compactControlVerticalPadding: CGFloat = 10
+    static let pillVerticalPadding: CGFloat = 7
+    static let primaryButtonHorizontalPadding: CGFloat = 18
+    static let templateCardPadding: CGFloat = 14
+    static let rpeGap: CGFloat = 6
+}
+
+enum DZMotion {
+    static let fastDuration: Double = 0.12
+    static let pressScale: CGFloat = 0.97
+    static let fastEaseOut = Animation.timingCurve(0.2, 0.8, 0.2, 1, duration: fastDuration)
 }
 
 extension Color {
@@ -75,7 +104,12 @@ extension View {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .stroke(DZColor.borderSoft, lineWidth: 1)
             )
-            .shadow(color: DZColor.ink900.opacity(0.06), radius: 2, x: 0, y: 1)
+            .dzShadowSM()
+    }
+
+    func dzShadowSM(isVisible: Bool = true) -> some View {
+        shadow(color: DZColor.ink900.opacity(isVisible ? 0.04 : 0), radius: 0, x: 0, y: 1)
+            .shadow(color: DZColor.ink900.opacity(isVisible ? 0.06 : 0), radius: 2, x: 0, y: 1)
     }
 
     @ViewBuilder
@@ -101,13 +135,13 @@ struct DZSection<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: DZMetric.space2) {
             if let title {
                 Text(title)
                     .font(.caption.weight(.bold))
                     .foregroundStyle(DZColor.ink700)
                     .textCase(.uppercase)
-                    .padding(.horizontal, 8)
+                    .padding(.horizontal, DZMetric.sectionHeaderPadding)
             }
 
             VStack(alignment: .leading, spacing: 0) {
@@ -121,7 +155,7 @@ struct DZSection<Content: View>: View {
                     .font(.caption)
                     .foregroundStyle(DZColor.ink700)
                     .lineSpacing(2)
-                    .padding(.horizontal, 8)
+                    .padding(.horizontal, DZMetric.sectionHeaderPadding)
             }
         }
     }
@@ -153,8 +187,8 @@ struct DZInfoRow: View {
     }
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
+        HStack(alignment: .firstTextBaseline, spacing: DZMetric.rowSpacing) {
+            VStack(alignment: .leading, spacing: DZMetric.infoTextSpacing) {
                 Text(title)
                     .font(.body)
                     .foregroundStyle(DZColor.ink900)
@@ -166,7 +200,7 @@ struct DZInfoRow: View {
                 }
             }
 
-            Spacer(minLength: 12)
+            Spacer(minLength: DZMetric.rowSpacing)
 
             if let value {
                 Text(value)
@@ -176,8 +210,18 @@ struct DZInfoRow: View {
                     .multilineTextAlignment(.trailing)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .padding(.horizontal, DZMetric.rowHorizontalPadding)
+        .padding(.vertical, DZMetric.rowVerticalPadding)
+    }
+}
+
+struct DZPressablePlainButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed && isEnabled ? DZMotion.pressScale : 1)
+            .animation(DZMotion.fastEaseOut, value: configuration.isPressed)
     }
 }
 
@@ -189,8 +233,8 @@ struct DZPrimaryButtonStyle: ButtonStyle {
         configuration.label
             .font(.body.weight(.semibold))
             .foregroundStyle(DZColor.fgOnPump)
-            .padding(.vertical, 12)
-            .padding(.horizontal, 18)
+            .padding(.vertical, DZMetric.rowVerticalPadding)
+            .padding(.horizontal, DZMetric.primaryButtonHorizontalPadding)
             .frame(maxWidth: fullWidth ? .infinity : nil)
             .background(isEnabled ? DZColor.pump500 : DZColor.cream300)
             .clipShape(RoundedRectangle(cornerRadius: DZMetric.radius, style: .continuous))
@@ -198,10 +242,10 @@ struct DZPrimaryButtonStyle: ButtonStyle {
                 RoundedRectangle(cornerRadius: DZMetric.radius, style: .continuous)
                     .stroke(DZColor.borderSoft, lineWidth: 1)
             )
-            .shadow(color: DZColor.ink900.opacity(isEnabled ? 0.08 : 0), radius: 8, x: 0, y: 4)
+            .dzShadowSM(isVisible: isEnabled)
             .opacity(isEnabled ? 1 : 0.55)
-            .scaleEffect(configuration.isPressed && isEnabled ? 0.97 : 1)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+            .scaleEffect(configuration.isPressed && isEnabled ? DZMotion.pressScale : 1)
+            .animation(DZMotion.fastEaseOut, value: configuration.isPressed)
     }
 }
 
@@ -213,8 +257,8 @@ struct DZSecondaryButtonStyle: ButtonStyle {
         configuration.label
             .font(.body.weight(.semibold))
             .foregroundStyle(DZColor.ink900)
-            .padding(.vertical, 10)
-            .padding(.horizontal, 14)
+            .padding(.vertical, DZMetric.compactControlVerticalPadding)
+            .padding(.horizontal, DZMetric.rowHorizontalPadding)
             .frame(maxWidth: fullWidth ? .infinity : nil)
             .background(DZColor.cream100)
             .clipShape(RoundedRectangle(cornerRadius: DZMetric.radius, style: .continuous))
@@ -223,8 +267,8 @@ struct DZSecondaryButtonStyle: ButtonStyle {
                     .stroke(DZColor.sand400, lineWidth: 1)
             )
             .opacity(isEnabled ? 1 : 0.55)
-            .scaleEffect(configuration.isPressed && isEnabled ? 0.97 : 1)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+            .scaleEffect(configuration.isPressed && isEnabled ? DZMotion.pressScale : 1)
+            .animation(DZMotion.fastEaseOut, value: configuration.isPressed)
     }
 }
 
@@ -235,13 +279,13 @@ struct DZPillButtonStyle: ButtonStyle {
         configuration.label
             .font(.system(.caption, design: .monospaced).weight(.semibold))
             .foregroundStyle(DZColor.ink900)
-            .padding(.vertical, 7)
+            .padding(.vertical, DZMetric.pillVerticalPadding)
             .frame(maxWidth: .infinity)
             .background(DZColor.cream200)
             .clipShape(Capsule())
             .opacity(isEnabled ? 1 : 0.55)
-            .scaleEffect(configuration.isPressed && isEnabled ? 0.97 : 1)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+            .scaleEffect(configuration.isPressed && isEnabled ? DZMotion.pressScale : 1)
+            .animation(DZMotion.fastEaseOut, value: configuration.isPressed)
     }
 }
 
@@ -253,8 +297,8 @@ struct DZDestructiveButtonStyle: ButtonStyle {
         configuration.label
             .font(.body.weight(.semibold))
             .foregroundStyle(DZColor.skull500)
-            .padding(.vertical, 10)
-            .padding(.horizontal, 14)
+            .padding(.vertical, DZMetric.compactControlVerticalPadding)
+            .padding(.horizontal, DZMetric.rowHorizontalPadding)
             .frame(maxWidth: fullWidth ? .infinity : nil)
             .background(DZColor.skull100.opacity(0.45))
             .clipShape(RoundedRectangle(cornerRadius: DZMetric.radius, style: .continuous))
@@ -263,8 +307,8 @@ struct DZDestructiveButtonStyle: ButtonStyle {
                     .stroke(DZColor.skull500.opacity(0.16), lineWidth: 1)
             )
             .opacity(isEnabled ? 1 : 0.55)
-            .scaleEffect(configuration.isPressed && isEnabled ? 0.97 : 1)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+            .scaleEffect(configuration.isPressed && isEnabled ? DZMotion.pressScale : 1)
+            .animation(DZMotion.fastEaseOut, value: configuration.isPressed)
     }
 }
 
@@ -275,7 +319,7 @@ struct DZTemplateCard: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: DZMetric.space4) {
                 Text(name)
                     .font(DZFont.display(size: 22))
                     .foregroundStyle(DZColor.ink900)
@@ -288,16 +332,16 @@ struct DZTemplateCard: View {
                     .foregroundStyle(accentTextColor)
             }
             .frame(maxWidth: .infinity, minHeight: 102, alignment: .bottomLeading)
-            .padding(14)
+            .padding(DZMetric.templateCardPadding)
             .background(accentBackground)
             .clipShape(RoundedRectangle(cornerRadius: DZMetric.radius, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: DZMetric.radius, style: .continuous)
                     .stroke(DZColor.borderSoft, lineWidth: 1)
             )
-            .shadow(color: DZColor.ink900.opacity(0.06), radius: 2, x: 0, y: 1)
+            .dzShadowSM()
         }
-        .buttonStyle(.plain)
+        .buttonStyle(DZPressablePlainButtonStyle())
     }
 
     private var accentBackground: Color {
@@ -330,7 +374,7 @@ struct DZRPEPicker: View {
     @Binding var selection: Int?
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: DZMetric.rpeGap) {
             ForEach(values, id: \.self) { rpe in
                 Button {
                     selection = selection == rpe ? nil : rpe
@@ -338,16 +382,16 @@ struct DZRPEPicker: View {
                     Text("\(rpe)")
                         .dzNumeric(size: 16, weight: .bold)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
+                        .padding(.vertical, DZMetric.compactControlVerticalPadding)
                         .background(selection == rpe ? rpeFill(rpe) : DZColor.cream50)
                         .foregroundStyle(selection == rpe ? rpeFg(rpe) : DZColor.ink900)
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: DZMetric.radiusSM, style: .continuous))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            RoundedRectangle(cornerRadius: DZMetric.radiusSM, style: .continuous)
                                 .stroke(DZColor.borderSoft, lineWidth: 1)
                         )
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(DZPressablePlainButtonStyle())
                 .accessibilityIdentifier("rpe-\(rpe)")
             }
         }
