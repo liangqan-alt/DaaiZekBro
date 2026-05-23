@@ -5,6 +5,12 @@ import Observation
 @Observable
 final class ExerciseLoggingViewModel {
     var selectedSide: Side = .left
+    var weightUnit: WeightUnit = .defaultUnit {
+        didSet {
+            convertWeightText(from: oldValue, to: weightUnit)
+        }
+    }
+
     var weightText = ""
     var repsText = ""
     var selectedRPE: Int?
@@ -13,19 +19,21 @@ final class ExerciseLoggingViewModel {
     var didLoadInitialDraft = false
 
     var parsedWeight: Double? {
-        let normalizedText = weightText
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: ",", with: ".")
+        Self.parseWeight(weightText)
+    }
 
-        guard normalizedText.isEmpty == false,
-              let value = Double(normalizedText),
-              value.isFinite,
-              value >= 0
-        else {
+    var parsedWeightKilograms: Double? {
+        guard let parsedWeight else {
             return nil
         }
 
-        return value
+        let kilograms = weightUnit.kilograms(fromDisplayValue: parsedWeight)
+
+        guard kilograms.isFinite, kilograms >= 0 else {
+            return nil
+        }
+
+        return kilograms
     }
 
     var parsedReps: Int? {
@@ -40,7 +48,7 @@ final class ExerciseLoggingViewModel {
 
     func adjustWeight(by delta: Double) {
         let currentWeight = parsedWeight ?? 0
-        weightText = Self.displayWeight(max(0, currentWeight + delta))
+        weightText = WeightDisplay.text(max(0, currentWeight + delta))
     }
 
     func adjustReps(by delta: Int) {
@@ -60,7 +68,7 @@ final class ExerciseLoggingViewModel {
             return
         }
 
-        weightText = Self.displayWeight(values.weight)
+        weightText = WeightDisplay.text(forKilograms: values.weight, unit: weightUnit)
         repsText = "\(values.reps)"
         selectedRPE = nil
     }
@@ -72,7 +80,7 @@ final class ExerciseLoggingViewModel {
         rightCount: Int
     ) -> Bool {
         sessionEnded == false
-            && parsedWeight != nil
+            && parsedWeightKilograms != nil
             && parsedReps != nil
             && selectedSideMatchesBalance(
                 isUnilateral: isUnilateral,
@@ -146,11 +154,28 @@ final class ExerciseLoggingViewModel {
         sortedSets(sets).filter { $0.side == nil }
     }
 
-    private static func displayWeight(_ weight: Double) -> String {
-        if weight.rounded() == weight {
-            return "\(Int(weight))"
+    private static func parseWeight(_ text: String) -> Double? {
+        let normalizedText = text
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: ",", with: ".")
+
+        guard normalizedText.isEmpty == false,
+              let value = Double(normalizedText),
+              value.isFinite,
+              value >= 0
+        else {
+            return nil
         }
 
-        return String(format: "%.1f", weight)
+        return value
+    }
+
+    private func convertWeightText(from oldUnit: WeightUnit, to newUnit: WeightUnit) {
+        guard oldUnit != newUnit, let displayValue = Self.parseWeight(weightText) else {
+            return
+        }
+
+        let kilograms = oldUnit.kilograms(fromDisplayValue: displayValue)
+        weightText = WeightDisplay.text(newUnit.displayValue(fromKilograms: kilograms))
     }
 }

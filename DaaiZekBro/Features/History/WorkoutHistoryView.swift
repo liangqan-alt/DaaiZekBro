@@ -223,11 +223,23 @@ struct WorkoutHistoryView: View {
 struct WorkoutHistoryDetailView: View {
     let sessionID: UUID
 
+    @AppStorage(WeightUnit.storageKey) private var weightUnitRawValue = WeightUnit.kilograms.rawValue
     @Query private var sessions: [WorkoutSession]
     @Query private var sets: [WorkoutSet]
 
     private var session: WorkoutSession? {
         sessions.first { $0.id == sessionID }
+    }
+
+    private var weightUnit: WeightUnit {
+        WeightUnit(rawValue: weightUnitRawValue) ?? .kilograms
+    }
+
+    private var weightUnitSelection: Binding<String> {
+        Binding(
+            get: { weightUnit.rawValue },
+            set: { weightUnitRawValue = $0 }
+        )
     }
 
     private var groups: [WorkoutHistoryExerciseGroup] {
@@ -237,6 +249,17 @@ struct WorkoutHistoryDetailView: View {
     var body: some View {
         List {
             if let session {
+                Section {
+                    Picker("重量单位", selection: weightUnitSelection) {
+                        ForEach(WeightUnit.allCases, id: \.rawValue) { unit in
+                            Text(unit.rawValue).tag(unit.rawValue)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .tint(DZColor.pump500)
+                    .accessibilityIdentifier("history-detail-weight-unit-picker")
+                }
+
                 Section("训练") {
                     LabeledContent("模板", value: WorkoutHistoryData.templateName(for: session))
                     LabeledContent("开始", value: WorkoutHistoryDisplay.fullDateTimeText(for: session.startedAt, timeZoneIdentifier: session.timezoneIdentifier))
@@ -251,7 +274,7 @@ struct WorkoutHistoryDetailView: View {
                 ForEach(groups) { group in
                     Section(group.exerciseName) {
                         ForEach(group.sets) { set in
-                            WorkoutHistorySetRow(set: set)
+                            WorkoutHistorySetRow(set: set, unit: weightUnit)
                         }
                     }
                 }
@@ -290,6 +313,7 @@ private struct WorkoutHistoryRowView: View {
 
 private struct WorkoutHistorySetRow: View {
     let set: WorkoutSet
+    let unit: WeightUnit
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -299,7 +323,7 @@ private struct WorkoutHistorySetRow: View {
 
                 Spacer()
 
-                Text("\(WorkoutHistoryDisplay.weightText(set.weight)) kg x \(set.reps)")
+                Text(WorkoutHistoryDisplay.setValueText(weightKilograms: set.weight, reps: set.reps, unit: unit))
                     .dzNumeric(size: 15)
                     .foregroundStyle(DZColor.ink900)
             }
