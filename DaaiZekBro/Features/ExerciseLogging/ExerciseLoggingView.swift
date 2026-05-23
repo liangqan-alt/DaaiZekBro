@@ -12,14 +12,8 @@ struct ExerciseLoggingView: View {
     @Query private var sessions: [WorkoutSession]
     @Query private var exercises: [Exercise]
     @Query private var sets: [WorkoutSet]
-    @State private var selectedSide: Side = .left
-    @State private var weightText = ""
-    @State private var repsText = ""
-    @State private var selectedRPE: Int?
-    @State private var isRPEExpanded = false
+    @State private var viewModel = ExerciseLoggingViewModel()
     @State private var pendingDeleteSet: WorkoutSet?
-    @State private var errorMessage: String?
-    @State private var didLoadInitialDraft = false
     @StateObject private var restTimer = RestTimerModel()
     @State private var timerMutationTask: Task<Void, Never>?
     private let restTimerTicker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
@@ -60,7 +54,7 @@ struct ExerciseLoggingView: View {
         .navigationTitle(exerciseName)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear(perform: loadInitialDraft)
-        .onChange(of: selectedSide) { _, _ in
+        .onChange(of: viewModel.selectedSide) { _, _ in
             prefillFromLastSet()
         }
         .onChange(of: sideBalanceKey) { _, _ in
@@ -96,17 +90,17 @@ struct ExerciseLoggingView: View {
         .alert(
             "操作失败",
             isPresented: Binding(
-                get: { errorMessage != nil },
+                get: { viewModel.errorMessage != nil },
                 set: { isPresented in
                     if isPresented == false {
-                        errorMessage = nil
+                        viewModel.errorMessage = nil
                     }
                 }
             )
         ) {
             Button("好", role: .cancel) {}
         } message: {
-            Text(errorMessage ?? "")
+            Text(viewModel.errorMessage ?? "")
         }
     }
 
@@ -119,49 +113,20 @@ struct ExerciseLoggingView: View {
     }
 
     private var currentSide: Side? {
-        exercise?.isUnilateral == true ? selectedSide : nil
-    }
-
-    private var parsedWeight: Double? {
-        let normalizedText = weightText
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .replacingOccurrences(of: ",", with: ".")
-
-        guard normalizedText.isEmpty == false, let value = Double(normalizedText), value >= 0 else {
-            return nil
-        }
-
-        return value
-    }
-
-    private var parsedReps: Int? {
-        let trimmedText = repsText.trimmingCharacters(in: .whitespacesAndNewlines)
-
-        guard trimmedText.isEmpty == false, let reps = Int(trimmedText), reps >= 1 else {
-            return nil
-        }
-
-        return reps
+        viewModel.currentSide(isUnilateral: exercise?.isUnilateral == true)
     }
 
     private var canCompleteSet: Bool {
-        session?.endedAt == nil && parsedWeight != nil && parsedReps != nil && selectedSideMatchesRecordedSets
-    }
-
-    private var selectedSideMatchesRecordedSets: Bool {
-        guard exercise?.isUnilateral == true else {
-            return true
+        guard let session, let exercise else {
+            return false
         }
 
-        if leftSets.count > rightSets.count {
-            return selectedSide == .right
-        }
-
-        if leftSets.count < rightSets.count {
-            return selectedSide == .left
-        }
-
-        return true
+        return viewModel.canCompleteSet(
+            sessionEnded: session.endedAt != nil,
+            isUnilateral: exercise.isUnilateral,
+            leftCount: leftSets.count,
+            rightCount: rightSets.count
+        )
     }
 
     private var loggedSets: [WorkoutSet] {
@@ -189,17 +154,11 @@ struct ExerciseLoggingView: View {
     }
 
     private var sidePrompt: String? {
-        guard exercise?.isUnilateral == true else { return nil }
-
-        if leftSets.count > rightSets.count {
-            return "上一组左侧已完成，请完成右侧"
-        }
-
-        if leftSets.count < rightSets.count {
-            return "上一组右侧已完成，请完成左侧"
-        }
-
-        return nil
+        viewModel.sidePrompt(
+            isUnilateral: exercise?.isUnilateral == true,
+            leftCount: leftSets.count,
+            rightCount: rightSets.count
+        )
     }
 
     private var lastReferenceSet: WorkoutSet? {
@@ -224,7 +183,7 @@ struct ExerciseLoggingView: View {
     private var sideSection: some View {
         DZSection("侧别") {
             VStack(alignment: .leading, spacing: 8) {
-                Picker("侧别", selection: $selectedSide) {
+                Picker("侧别", selection: $viewModel.selectedSide) {
                     Text("左").tag(Side.left)
                     Text("右").tag(Side.right)
                 }
@@ -266,27 +225,27 @@ struct ExerciseLoggingView: View {
             NumericEntryRow(
                 title: "重量",
                 unit: "kg",
-                text: $weightText,
+                text: $viewModel.weightText,
                 keyboardType: .decimalPad,
-                decrement: { adjustWeight(by: -2.5) },
-                increment: { adjustWeight(by: 2.5) }
+                decrement: { viewModel.adjustWeight(by: -2.5) },
+                increment: { viewModel.adjustWeight(by: 2.5) }
             )
 
             DZDivider()
 
             HStack {
                 Button("-2.5") {
-                    adjustWeight(by: -2.5)
+                    viewModel.adjustWeight(by: -2.5)
                 }
                 .buttonStyle(DZPillButtonStyle())
 
                 Button("+2.5") {
-                    adjustWeight(by: 2.5)
+                    viewModel.adjustWeight(by: 2.5)
                 }
                 .buttonStyle(DZPillButtonStyle())
 
                 Button("+5") {
-                    adjustWeight(by: 5)
+                    viewModel.adjustWeight(by: 5)
                 }
                 .buttonStyle(DZPillButtonStyle())
             }
@@ -298,10 +257,10 @@ struct ExerciseLoggingView: View {
             NumericEntryRow(
                 title: "次数",
                 unit: "次",
-                text: $repsText,
+                text: $viewModel.repsText,
                 keyboardType: .numberPad,
-                decrement: { adjustReps(by: -1) },
-                increment: { adjustReps(by: 1) }
+                decrement: { viewModel.adjustReps(by: -1) },
+                increment: { viewModel.adjustReps(by: 1) }
             )
         }
     }
@@ -310,14 +269,14 @@ struct ExerciseLoggingView: View {
         DZSection {
             Button {
                 withAnimation(DZMotion.fastEaseOut) {
-                    isRPEExpanded.toggle()
+                    viewModel.isRPEExpanded.toggle()
                 }
             } label: {
                 HStack {
                     Text("RPE（可选）")
                         .foregroundStyle(DZColor.ink900)
 
-                    if let selectedRPE {
+                    if let selectedRPE = viewModel.selectedRPE {
                         Text("\(selectedRPE)")
                             .dzNumeric(size: 15, weight: .bold)
                             .foregroundStyle(DZColor.pump500)
@@ -328,25 +287,25 @@ struct ExerciseLoggingView: View {
                     Image(systemName: "chevron.right")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(DZColor.fgFaint)
-                        .rotationEffect(.degrees(isRPEExpanded ? 90 : 0))
+                        .rotationEffect(.degrees(viewModel.isRPEExpanded ? 90 : 0))
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
             }
             .buttonStyle(.plain)
 
-            if isRPEExpanded {
+            if viewModel.isRPEExpanded {
                 DZDivider()
 
-                DZRPEPicker(values: WorkoutSetLogging.allowedRPEValues, selection: $selectedRPE)
+                DZRPEPicker(values: WorkoutSetLogging.allowedRPEValues, selection: $viewModel.selectedRPE)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 12)
 
-                if selectedRPE != nil {
+                if viewModel.selectedRPE != nil {
                     DZDivider()
 
                     Button("清除 RPE", role: .destructive) {
-                        selectedRPE = nil
+                        viewModel.selectedRPE = nil
                     }
                     .foregroundStyle(DZColor.skull500)
                     .padding(.horizontal, 14)
@@ -359,7 +318,7 @@ struct ExerciseLoggingView: View {
     private func completionSection(for exercise: Exercise) -> some View {
         DZSection {
             Button(action: completeSet) {
-                Text(completionButtonTitle(for: exercise))
+                Text(viewModel.completionButtonTitle(isUnilateral: exercise.isUnilateral))
                     .frame(maxWidth: .infinity)
             }
             .buttonStyle(DZPrimaryButtonStyle())
@@ -409,11 +368,11 @@ struct ExerciseLoggingView: View {
     }
 
     private func loadInitialDraft() {
-        guard didLoadInitialDraft == false else { return }
+        guard viewModel.didLoadInitialDraft == false else { return }
 
         syncSideWithRecordedSets()
         prefillFromLastSet()
-        didLoadInitialDraft = true
+        viewModel.didLoadInitialDraft = true
     }
 
     private func syncSideWithRecordedSets() {
@@ -422,49 +381,31 @@ struct ExerciseLoggingView: View {
         }
 
         do {
-            selectedSide = try WorkoutSetLogging.inferredNextSide(
+            viewModel.selectedSide = try WorkoutSetLogging.inferredNextSide(
                 sessionID: sessionID,
                 exerciseName: exerciseName,
                 in: modelContext
             )
         } catch {
-            errorMessage = error.localizedDescription
+            viewModel.errorMessage = error.localizedDescription
         }
     }
 
     private func prefillFromLastSet() {
         do {
-            guard let values = try WorkoutSetLogging.lastValues(
+            let values = try WorkoutSetLogging.lastValues(
                 exerciseName: exerciseName,
                 side: currentSide,
                 in: modelContext
-            ) else {
-                weightText = ""
-                repsText = ""
-                selectedRPE = nil
-                return
-            }
-
-            weightText = displayWeight(values.weight)
-            repsText = "\(values.reps)"
-            selectedRPE = nil
+            )
+            viewModel.applyPrefill(values)
         } catch {
-            errorMessage = error.localizedDescription
+            viewModel.errorMessage = error.localizedDescription
         }
     }
 
-    private func adjustWeight(by delta: Double) {
-        let currentWeight = parsedWeight ?? 0
-        weightText = displayWeight(max(0, currentWeight + delta))
-    }
-
-    private func adjustReps(by delta: Int) {
-        let currentReps = parsedReps ?? 0
-        repsText = "\(max(1, currentReps + delta))"
-    }
-
     private func completeSet() {
-        guard canCompleteSet, let weight = parsedWeight, let reps = parsedReps, let exercise else {
+        guard canCompleteSet, let weight = viewModel.parsedWeight, let reps = viewModel.parsedReps, let exercise else {
             return
         }
 
@@ -474,12 +415,12 @@ struct ExerciseLoggingView: View {
                 exerciseName: exerciseName,
                 weight: weight,
                 reps: reps,
-                rpe: selectedRPE,
-                side: exercise.isUnilateral ? selectedSide : nil,
+                rpe: viewModel.selectedRPE,
+                side: exercise.isUnilateral ? viewModel.selectedSide : nil,
                 in: modelContext
             )
 
-            let completedSide = exercise.isUnilateral ? selectedSide : nil
+            let completedSide = exercise.isUnilateral ? viewModel.selectedSide : nil
 
             if RestTimerStartPolicy.shouldStartAfterCompletedSet(
                 isUnilateral: exercise.isUnilateral,
@@ -488,16 +429,16 @@ struct ExerciseLoggingView: View {
                 startRestTimer(restSeconds: exercise.defaultRestSeconds, startedAt: savedSet.completedAt)
 
                 if exercise.isUnilateral {
-                    selectedSide = .left
+                    viewModel.selectedSide = .left
                 }
             } else if exercise.isUnilateral {
                 restTimer.stopForegroundTimerKeepingNotification()
-                selectedSide = .right
+                viewModel.selectedSide = .right
             }
 
             prefillFromLastSet()
         } catch {
-            errorMessage = error.localizedDescription
+            viewModel.errorMessage = error.localizedDescription
         }
     }
 
@@ -541,19 +482,6 @@ struct ExerciseLoggingView: View {
         prefillFromLastSet()
     }
 
-    private func completionButtonTitle(for exercise: Exercise) -> String {
-        guard exercise.isUnilateral else {
-            return "完成本组 · 开始计时"
-        }
-
-        switch selectedSide {
-        case .left:
-            return "完成左侧"
-        case .right:
-            return "完成右侧 · 开始计时"
-        }
-    }
-
     private func confirmDelete(_ set: WorkoutSet) {
         pendingDeleteSet = set
     }
@@ -569,7 +497,7 @@ struct ExerciseLoggingView: View {
             syncSideWithRecordedSets()
             prefillFromLastSet()
         } catch {
-            errorMessage = error.localizedDescription
+            viewModel.errorMessage = error.localizedDescription
         }
     }
 }
