@@ -5,6 +5,18 @@
 
 ## [Unreleased]
 
+## [V0.10] - 2026-05-23
+
+### 新增
+- 增加 `ExerciseLoggingViewModel` 单元测试，覆盖动作记录页草稿输入解析、重量/次数步进、预填、侧别平衡和完成按钮文案。
+
+### 变更
+- 将 Swift 源码按 App、Models、DesignSystem、Services 和 Features 分层整理，拆出模板列表、当前训练、动作记录、训练历史和 Settings 等功能目录，便于后续按 Feature 独立开发。
+- 将 `ContentView` 瘦身为根导航与 seed/通知路由壳，抽出 `AppRoute`、`TemplateListView` 和 `CurrentWorkoutView`，保持现有导航流程不变。
+- 拆分休息计时与通知调度职责，将通知 payload/scheduler 移入 Services/Notifications，计时器 model/view/policy 留在 ExerciseLogging feature。
+- 将训练历史的数据聚合与展示格式化逻辑拆入独立的 `WorkoutHistoryData`，保留现有历史列表、详情、分享和删除行为。
+- 将动作记录页输入草稿状态和纯展示决策迁入 `ExerciseLoggingViewModel`，SwiftData 写入、删除和休息计时副作用仍保留在 View 层。
+
 ## [V0.9] - 2026-05-23
 
 ### 新增
