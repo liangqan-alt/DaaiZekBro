@@ -185,6 +185,90 @@ struct DaaiZekBroTests {
         #expect(try fetchSets(in: context).isEmpty)
     }
 
+    @Test func deleteCompletedSessionsDeletesSelectedSessionsAndSetsOnly() throws {
+        let context = try makeInMemoryContext()
+        try SeedData.writeAndDedup(in: context)
+        let template = try template(named: "Push A", in: context)
+        let exercise = try exercise(named: "固定器械卧推", in: context)
+        let deletedSession = try WorkoutSessionLifecycle.createSession(for: template, in: context)
+        let deletedSet = try WorkoutSetLogging.recordSet(
+            sessionID: deletedSession.id,
+            exerciseName: exercise.name,
+            weight: 30,
+            reps: 8,
+            rpe: nil,
+            side: nil,
+            in: context
+        )
+        try WorkoutSessionLifecycle.end(deletedSession, in: context)
+
+        let keptSession = try WorkoutSessionLifecycle.createSession(for: template, in: context)
+        let keptSet = try WorkoutSetLogging.recordSet(
+            sessionID: keptSession.id,
+            exerciseName: exercise.name,
+            weight: 32.5,
+            reps: 7,
+            rpe: nil,
+            side: nil,
+            in: context
+        )
+        try WorkoutSessionLifecycle.end(keptSession, in: context)
+
+        try WorkoutSessionLifecycle.deleteCompletedSessions(sessionIDs: [deletedSession.id], in: context)
+
+        let sessions = try fetchSessions(in: context)
+        let sets = try fetchSets(in: context)
+
+        #expect(sessions.map(\.id) == [keptSession.id])
+        #expect(sets.map(\.id) == [keptSet.id])
+        #expect(sets.contains { $0.id == deletedSet.id } == false)
+    }
+
+    @Test func deleteCompletedSessionsRejectsOpenSessionWithoutPartialDelete() throws {
+        let context = try makeInMemoryContext()
+        try SeedData.writeAndDedup(in: context)
+        let template = try template(named: "Push A", in: context)
+        let exercise = try exercise(named: "固定器械卧推", in: context)
+        let endedSession = try WorkoutSessionLifecycle.createSession(for: template, in: context)
+
+        _ = try WorkoutSetLogging.recordSet(
+            sessionID: endedSession.id,
+            exerciseName: exercise.name,
+            weight: 30,
+            reps: 8,
+            rpe: nil,
+            side: nil,
+            in: context
+        )
+        try WorkoutSessionLifecycle.end(endedSession, in: context)
+
+        let openSession = try WorkoutSessionLifecycle.createSession(for: template, in: context)
+        _ = try WorkoutSetLogging.recordSet(
+            sessionID: openSession.id,
+            exerciseName: exercise.name,
+            weight: 32.5,
+            reps: 7,
+            rpe: nil,
+            side: nil,
+            in: context
+        )
+
+        var didRejectOpenSession = false
+
+        do {
+            try WorkoutSessionLifecycle.deleteCompletedSessions(
+                sessionIDs: [endedSession.id, openSession.id],
+                in: context
+            )
+        } catch WorkoutSessionLifecycleError.cannotDeleteOpenSession {
+            didRejectOpenSession = true
+        }
+
+        #expect(didRejectOpenSession)
+        #expect(Set(try fetchSessions(in: context).map(\.id)) == Set([endedSession.id, openSession.id]))
+        #expect(try fetchSets(in: context).count == 2)
+    }
+
     @Test func exercisesFallbackToTemplateNameSnapshot() throws {
         let context = try makeInMemoryContext()
         try SeedData.writeAndDedup(in: context)

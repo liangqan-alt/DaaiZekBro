@@ -135,6 +135,10 @@ final class CSVExporter {
         try csvString(in: context, resolvedRange: try range.resolved(now: now, calendar: calendar))
     }
 
+    static func csvString(in context: ModelContext, sessionIDs: Set<UUID>) throws -> String {
+        try csvString(from: exportRows(in: context, sessionIDs: sessionIDs))
+    }
+
     static func summary(
         in context: ModelContext,
         range: CSVExportRange,
@@ -164,6 +168,28 @@ final class CSVExporter {
 
         let fileURL = fileManager.temporaryDirectory
             .appendingPathComponent(fileName(for: resolvedRange, exportedAt: exportedAt, calendar: calendar))
+        let csvData = Data((byteOrderMark + csvString(from: rows)).utf8)
+
+        try csvData.write(to: fileURL, options: .atomic)
+
+        return fileURL
+    }
+
+    static func exportFile(
+        in context: ModelContext,
+        sessionIDs: Set<UUID>,
+        exportedAt: Date = Date(),
+        fileManager: FileManager = .default,
+        calendar: Calendar = .current
+    ) throws -> URL {
+        let rows = try exportRows(in: context, sessionIDs: sessionIDs)
+
+        guard rows.isEmpty == false else {
+            throw CSVExporterError.noDataInRange
+        }
+
+        let fileURL = fileManager.temporaryDirectory
+            .appendingPathComponent(selectedFileName(exportedAt: exportedAt, calendar: calendar))
         let csvData = Data((byteOrderMark + csvString(from: rows)).utf8)
 
         try csvData.write(to: fileURL, options: .atomic)
@@ -201,6 +227,43 @@ final class CSVExporter {
             let sessionSets = sortedSets(
                 allSets.filter { set in
                     set.session?.id == session.id && resolvedRange.contains(set.completedAt)
+                }
+            )
+
+            guard sessionSets.isEmpty == false else {
+                continue
+            }
+
+            guard let timeZone = TimeZone(identifier: session.timezoneIdentifier) else {
+                throw CSVExporterError.invalidTimeZoneIdentifier(session.timezoneIdentifier)
+            }
+
+            rows.append(contentsOf: sessionSets.map { CSVExportRow(session: session, set: $0, timeZone: timeZone) })
+        }
+
+        return rows
+    }
+
+    private static func exportRows(
+        in context: ModelContext,
+        sessionIDs: Set<UUID>
+    ) throws -> [CSVExportRow] {
+        guard sessionIDs.isEmpty == false else {
+            return []
+        }
+
+        let sessions = try context.fetch(
+            FetchDescriptor<WorkoutSession>(
+                sortBy: [SortDescriptor(\WorkoutSession.startedAt)]
+            )
+        )
+        let allSets = try context.fetch(FetchDescriptor<WorkoutSet>())
+        var rows: [CSVExportRow] = []
+
+        for session in sessions where sessionIDs.contains(session.id) {
+            let sessionSets = sortedSets(
+                allSets.filter { set in
+                    set.session?.id == session.id
                 }
             )
 
@@ -371,6 +434,10 @@ final class CSVExporter {
 
     private static func fileName(exportedAt: Date, calendar: Calendar) -> String {
         "gym_log_\(formatFileDate(exportedAt, calendar: calendar)).csv"
+    }
+
+    private static func selectedFileName(exportedAt: Date, calendar: Calendar) -> String {
+        "gym_log_selected_\(formatFileDate(exportedAt, calendar: calendar)).csv"
     }
 
     private static func formatFileDate(_ date: Date, calendar: Calendar) -> String {

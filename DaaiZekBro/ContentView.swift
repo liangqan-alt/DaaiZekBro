@@ -227,7 +227,7 @@ struct TemplateListView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(DZColor.pump500)
             .clipShape(RoundedRectangle(cornerRadius: DZMetric.radius, style: .continuous))
-            .shadow(color: DZColor.ink900.opacity(0.12), radius: 12, x: 0, y: 6)
+            .dzShadowSM()
         }
         .buttonStyle(.plain)
     }

@@ -9,6 +9,30 @@ struct SettingsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: DZMetric.sectionSpacing) {
+                DZSection {
+                    NavigationLink {
+                        WorkoutHistoryView()
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "clock.arrow.circlepath")
+                                .foregroundStyle(DZColor.pump500)
+
+                            Text("训练历史")
+                                .foregroundStyle(DZColor.ink900)
+
+                            Spacer()
+
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(DZColor.fgFaint)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("workout-history-button")
+                }
+
                 DZSection(footer: "可按全部、最近日期或自定义日期范围导出训练 CSV。") {
                     Button {
                         exportURL = nil

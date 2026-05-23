@@ -497,6 +497,79 @@ struct CSVExporterTests {
         #expect(records[1][3] == "")
     }
 
+    @Test func selectedSessionExportKeepsSchemaUUIDsAndSelectedFileName() throws {
+        let context = try makeInMemoryContext()
+        let timeZone = try requiredTimeZone("Asia/Shanghai")
+        let calendar = gregorianCalendar(timeZone: timeZone)
+
+        try SeedData.writeAndDedup(in: context)
+
+        let emptyTemplate = try template(named: "Pull A", in: context)
+        let emptySession = try WorkoutSessionLifecycle.createSession(
+            for: emptyTemplate,
+            in: context,
+            startedAt: try date(2026, 5, 19, 8, 0, 0, timeZone: timeZone),
+            timeZone: timeZone
+        )
+        try WorkoutSessionLifecycle.end(
+            emptySession,
+            in: context,
+            endedAt: try date(2026, 5, 19, 8, 30, 0, timeZone: timeZone)
+        )
+
+        let selectedEndedSession = try recordSession(
+            templateName: "Push A",
+            exerciseName: "固定器械卧推",
+            startedAt: try date(2026, 5, 20, 9, 0, 0, timeZone: timeZone),
+            setCompletedAt: try date(2026, 5, 20, 9, 5, 0, timeZone: timeZone),
+            endedAt: try date(2026, 5, 20, 10, 0, 0, timeZone: timeZone),
+            timeZone: timeZone,
+            in: context
+        )
+        let unselectedSession = try recordSession(
+            templateName: "Pull A",
+            exerciseName: "龙门架宽距高位下拉",
+            startedAt: try date(2026, 5, 21, 9, 0, 0, timeZone: timeZone),
+            setCompletedAt: try date(2026, 5, 21, 9, 5, 0, timeZone: timeZone),
+            endedAt: try date(2026, 5, 21, 10, 0, 0, timeZone: timeZone),
+            timeZone: timeZone,
+            in: context
+        )
+        let selectedOpenSession = try recordSession(
+            templateName: "Push A",
+            exerciseName: "固定器械卧推",
+            startedAt: try date(2026, 5, 22, 9, 0, 0, timeZone: timeZone),
+            setCompletedAt: try date(2026, 5, 22, 9, 5, 0, timeZone: timeZone),
+            endedAt: nil,
+            timeZone: timeZone,
+            in: context
+        )
+        let selectedSessionIDs = Set([emptySession.id, selectedEndedSession.id, selectedOpenSession.id])
+
+        let records = csvRecords(from: try CSVExporter.csvString(in: context, sessionIDs: selectedSessionIDs))
+
+        #expect(records.count == 3)
+        #expect(records[0] == CSVExporter.columnNames)
+        #expect(records.dropFirst().allSatisfy { $0.count == CSVExporter.columnNames.count })
+        #expect(records.dropFirst().map { $0[1] } == [
+            selectedEndedSession.id.uuidString,
+            selectedOpenSession.id.uuidString,
+        ])
+        #expect(records.dropFirst().contains { $0[1] == unselectedSession.id.uuidString } == false)
+        #expect(records[2][3] == "")
+
+        let url = try CSVExporter.exportFile(
+            in: context,
+            sessionIDs: selectedSessionIDs,
+            exportedAt: try date(2026, 5, 23, 12, 0, 0, timeZone: timeZone),
+            calendar: calendar
+        )
+        let data = try Data(contentsOf: url)
+
+        #expect(url.lastPathComponent == "gym_log_selected_2026-05-23.csv")
+        #expect(Array(data.prefix(3)) == [0xEF, 0xBB, 0xBF])
+    }
+
     @Test func invalidCustomRangeThrows() throws {
         let context = try makeInMemoryContext()
         let timeZone = try requiredTimeZone("Asia/Shanghai")

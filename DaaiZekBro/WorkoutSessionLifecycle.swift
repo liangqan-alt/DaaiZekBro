@@ -3,11 +3,14 @@ import SwiftData
 
 enum WorkoutSessionLifecycleError: Error, LocalizedError, Equatable {
     case openSessionAlreadyExists
+    case cannotDeleteOpenSession
 
     var errorDescription: String? {
         switch self {
         case .openSessionAlreadyExists:
             "已有未结束的训练"
+        case .cannotDeleteOpenSession:
+            "进行中的训练请先结束或丢弃后再删除"
         }
     }
 }
@@ -65,6 +68,31 @@ enum WorkoutSessionLifecycle {
         }
 
         context.delete(session)
+        try context.save()
+    }
+
+    static func deleteCompletedSessions(sessionIDs: Set<UUID>, in context: ModelContext) throws {
+        guard sessionIDs.isEmpty == false else {
+            return
+        }
+
+        let sessions = try context.fetch(FetchDescriptor<WorkoutSession>())
+            .filter { sessionIDs.contains($0.id) }
+
+        guard sessions.allSatisfy({ $0.endedAt != nil }) else {
+            throw WorkoutSessionLifecycleError.cannotDeleteOpenSession
+        }
+
+        let sets = try context.fetch(FetchDescriptor<WorkoutSet>())
+
+        for set in sets where set.session.map({ sessionIDs.contains($0.id) }) == true {
+            context.delete(set)
+        }
+
+        for session in sessions {
+            context.delete(session)
+        }
+
         try context.save()
     }
 
