@@ -145,11 +145,15 @@ enum WorkoutHistoryData {
     }
 
     static func templateName(for session: WorkoutSession) -> String {
+        if session.templateNameSnapshot.isEmpty == false {
+            return session.templateNameSnapshot
+        }
+
         if let templateName = session.template?.name, templateName.isEmpty == false {
             return templateName
         }
 
-        return session.templateNameSnapshot.isEmpty ? "未命名训练" : session.templateNameSnapshot
+        return "未命名训练"
     }
 
     static func exerciseName(for set: WorkoutSet) -> String {

@@ -79,6 +79,44 @@ struct WorkoutHistoryTests {
         #expect(title == "2026-05-22 (五) · Push A (进行中) · 2组 · 1h 0m")
     }
 
+    @Test func completedHistoryUsesTemplateNameSnapshotAfterTemplateRename() throws {
+        let timeZone = try requiredTimeZone("Asia/Shanghai")
+        let template = Template(name: "Push A")
+        let session = WorkoutSession(
+            id: UUID(),
+            template: template,
+            templateNameSnapshot: "Push A",
+            startedAt: try date(2026, 5, 22, 9, 0, 0, timeZone: timeZone),
+            endedAt: try date(2026, 5, 22, 10, 0, 0, timeZone: timeZone),
+            timezoneIdentifier: timeZone.identifier
+        )
+        let set = WorkoutSet(session: session, exerciseNameSnapshot: "固定器械卧推")
+
+        template.name = "Push Prime"
+
+        let summaries = WorkoutHistoryData.summaries(sessions: [session], sets: [set])
+
+        #expect(WorkoutHistoryData.templateName(for: session) == "Push A")
+        #expect(summaries.map(\.templateName) == ["Push A"])
+    }
+
+    @Test func completedHistoryUsesTemplateNameSnapshotAfterTemplateDeletion() throws {
+        let timeZone = try requiredTimeZone("Asia/Shanghai")
+        let template = Template(name: "Push A")
+        let session = WorkoutSession(
+            id: UUID(),
+            template: template,
+            templateNameSnapshot: "Push A",
+            startedAt: try date(2026, 5, 22, 9, 0, 0, timeZone: timeZone),
+            endedAt: try date(2026, 5, 22, 10, 0, 0, timeZone: timeZone),
+            timezoneIdentifier: timeZone.identifier
+        )
+
+        session.template = nil
+
+        #expect(WorkoutHistoryData.templateName(for: session) == "Push A")
+    }
+
     @Test func setValueTextFormatsKilograms() {
         let text = WorkoutHistoryDisplay.setValueText(weightKilograms: 45.4, reps: 8, unit: .kilograms)
 

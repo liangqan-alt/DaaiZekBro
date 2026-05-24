@@ -1,0 +1,225 @@
+import Foundation
+import SwiftData
+import Testing
+@testable import DaaiZekBro
+
+@MainActor
+struct TemplateLibraryTests {
+    @Test func createTrimsNameValidatesUniquenessAndAppendsToEnd() throws {
+        let context = try makeInMemoryContext()
+        try SeedData.writeAndDedup(in: context)
+
+        let existingTemplates = try fetchTemplates(in: context)
+        let previousMaxSortIndex = existingTemplates.map(\.sortIndex).max() ?? -1
+
+        let template = try TemplateLibrary.create(name: "  Custom Push  ", in: context)
+
+        #expect(template.name == "Custom Push")
+        #expect(template.exercises.isEmpty)
+        #expect(try templateExerciseLinks(for: template, in: context).isEmpty)
+        #expect(template.sortIndex == previousMaxSortIndex + 1)
+        #expect(try fetchTemplates(in: context).sortedByTemplateOrder().map(\.name).last == "Custom Push")
+
+        var didThrowEmptyName = false
+
+        do {
+            _ = try TemplateLibrary.create(name: " \n ", in: context)
+        } catch TemplateLibraryError.emptyName {
+            didThrowEmptyName = true
+        }
+
+        var didThrowDuplicateName = false
+
+        do {
+            _ = try TemplateLibrary.create(name: "Push A", in: context)
+        } catch TemplateLibraryError.duplicateName(let name) {
+            didThrowDuplicateName = name == "Push A"
+        }
+
+        #expect(didThrowEmptyName)
+        #expect(didThrowDuplicateName)
+        #expect(try fetchTemplates(in: context).count == existingTemplates.count + 1)
+    }
+
+    @Test func renameValidatesDuplicatesExcludesSelfAndPreservesSessionSnapshot() throws {
+        let context = try makeInMemoryContext()
+        try SeedData.writeAndDedup(in: context)
+
+        let template = try template(named: "Push A", in: context)
+        let session = try WorkoutSessionLifecycle.createSession(for: template, in: context)
+
+        try TemplateLibrary.rename(template, name: "  Push Prime  ", in: context)
+
+        #expect(template.name == "Push Prime")
+        #expect(session.templateNameSnapshot == "Push A")
+
+        try TemplateLibrary.rename(template, name: " Push Prime ", in: context)
+        #expect(template.name == "Push Prime")
+
+        let lowercaseTemplate = try TemplateLibrary.create(name: "push prime", in: context)
+
+        var didThrowDuplicateName = false
+
+        do {
+            try TemplateLibrary.rename(lowercaseTemplate, name: "Push Prime", in: context)
+        } catch TemplateLibraryError.duplicateName(let name) {
+            didThrowDuplicateName = name == "Push Prime"
+        }
+
+        #expect(didThrowDuplicateName)
+        #expect(lowercaseTemplate.name == "push prime")
+    }
+
+    @Test func persistOrderWritesContiguousSortIndexes() throws {
+        let context = try makeInMemoryContext()
+        try SeedData.writeAndDedup(in: context)
+
+        var reorderedTemplates = try fetchTemplates(in: context).sortedByTemplateOrder()
+        let firstTemplate = reorderedTemplates.removeFirst()
+        reorderedTemplates.insert(firstTemplate, at: 3)
+
+        try TemplateLibrary.persistOrder(reorderedTemplates, in: context)
+
+        let persistedTemplates = try fetchTemplates(in: context).sortedByTemplateOrder()
+
+        #expect(persistedTemplates.map(\.name) == reorderedTemplates.map(\.name))
+        #expect(persistedTemplates.map(\.sortIndex) == Array(0..<persistedTemplates.count))
+    }
+
+    @Test func deleteTemplateRemovesOnlyTemplateAndTemplateLinks() throws {
+        let context = try makeInMemoryContext()
+        try SeedData.writeAndDedup(in: context)
+
+        let template = try template(named: "Push A", in: context)
+        let exerciseCount = try fetchExercises(in: context).count
+
+        #expect(try templateExerciseLinks(for: template, in: context).isEmpty == false)
+
+        try TemplateLibrary.delete(template, in: context)
+
+        #expect(try fetchTemplates(in: context).contains { $0.name == "Push A" } == false)
+        #expect(try fetchExercises(in: context).count == exerciseCount)
+        #expect(try fetchTemplateExercises(in: context).contains { $0.template?.name == "Push A" } == false)
+    }
+
+    @Test func deleteTemplateAllowsOpenSessionToContinueFromSnapshots() throws {
+        let context = try makeInMemoryContext()
+        try SeedData.writeAndDedup(in: context)
+
+        let template = try template(named: "Push A", in: context)
+        let session = try WorkoutSessionLifecycle.createSession(for: template, in: context)
+
+        try TemplateLibrary.delete(template, in: context)
+
+        let exerciseNames = try WorkoutSessionLifecycle.exerciseDescriptors(for: session, in: context).map(\.name)
+        let expectedExerciseNames = try seedExerciseNames(for: "Push A")
+        let set = try WorkoutSetLogging.recordSet(
+            sessionID: session.id,
+            exerciseName: "固定器械卧推",
+            weight: 30,
+            reps: 8,
+            rpe: nil,
+            side: nil,
+            in: context
+        )
+
+        #expect(exerciseNames == expectedExerciseNames)
+        #expect(set.exerciseNameSnapshot == "固定器械卧推")
+        #expect(set.exerciseOrderIndex == 0)
+        #expect(set.setIndex == 1)
+    }
+
+    @Test func templateNameSavePolicyRejectsBlankAndMissingEditedTemplate() {
+        #expect(TemplateNameEditorSavePolicy.canSave(
+            isNewTemplate: true,
+            hasTemplate: false,
+            name: " Custom Push "
+        ))
+        #expect(TemplateNameEditorSavePolicy.canSave(
+            isNewTemplate: false,
+            hasTemplate: true,
+            name: "Custom Push"
+        ))
+        #expect(TemplateNameEditorSavePolicy.canSave(
+            isNewTemplate: false,
+            hasTemplate: false,
+            name: "Custom Push"
+        ) == false)
+        #expect(TemplateNameEditorSavePolicy.canSave(
+            isNewTemplate: true,
+            hasTemplate: false,
+            name: " \n "
+        ) == false)
+    }
+
+    private func makeInMemoryContext() throws -> ModelContext {
+        let schema = Schema([
+            Exercise.self,
+            Template.self,
+            TemplateExercise.self,
+            WorkoutSession.self,
+            WorkoutSessionExerciseSnapshot.self,
+            WorkoutSet.self,
+        ])
+        let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        let container = try ModelContainer(for: schema, configurations: [configuration])
+
+        return ModelContext(container)
+    }
+
+    private func fetchExercises(in context: ModelContext) throws -> [Exercise] {
+        try context.fetch(FetchDescriptor<Exercise>(sortBy: [SortDescriptor(\Exercise.name)]))
+    }
+
+    private func fetchTemplates(in context: ModelContext) throws -> [Template] {
+        try context.fetch(FetchDescriptor<Template>())
+    }
+
+    private func fetchTemplateExercises(in context: ModelContext) throws -> [TemplateExercise] {
+        try context.fetch(FetchDescriptor<TemplateExercise>())
+    }
+
+    private func template(named name: String, in context: ModelContext) throws -> Template {
+        guard let template = try fetchTemplates(in: context).first(where: { $0.name == name }) else {
+            throw TemplateLibraryTestError.missingTemplate(name)
+        }
+
+        return template
+    }
+
+    private func templateExerciseLinks(for template: Template, in context: ModelContext) throws -> [TemplateExercise] {
+        try fetchTemplateExercises(in: context)
+            .filter { $0.template === template }
+            .sorted { lhs, rhs in
+                if lhs.orderIndex != rhs.orderIndex {
+                    return lhs.orderIndex < rhs.orderIndex
+                }
+
+                return (lhs.exercise?.name ?? "") < (rhs.exercise?.name ?? "")
+            }
+    }
+
+    private func seedExerciseNames(for templateName: String) throws -> [String] {
+        guard let seedTemplate = SeedData.templateExerciseNames.first(where: { $0.name == templateName }) else {
+            throw TemplateLibraryTestError.missingTemplate(templateName)
+        }
+
+        return seedTemplate.exerciseNames
+    }
+}
+
+private extension Array where Element == Template {
+    func sortedByTemplateOrder() -> [Template] {
+        sorted { lhs, rhs in
+            if lhs.sortIndex != rhs.sortIndex {
+                return lhs.sortIndex < rhs.sortIndex
+            }
+
+            return lhs.name < rhs.name
+        }
+    }
+}
+
+private enum TemplateLibraryTestError: Error {
+    case missingTemplate(String)
+}
