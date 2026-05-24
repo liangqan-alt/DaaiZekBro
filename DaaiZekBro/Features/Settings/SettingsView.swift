@@ -33,6 +33,30 @@ struct SettingsView: View {
                     .accessibilityIdentifier("workout-history-button")
                 }
 
+                DZSection {
+                    NavigationLink {
+                        ExerciseLibraryView()
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "figure.strengthtraining.traditional")
+                                .foregroundStyle(DZColor.pump500)
+
+                            Text("管理动作库")
+                                .foregroundStyle(DZColor.ink900)
+
+                            Spacer()
+
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(DZColor.fgFaint)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("exercise-library-entry")
+                }
+
                 DZSection(footer: "可按全部、最近日期或自定义日期范围导出训练 CSV。") {
                     Button {
                         exportURL = nil

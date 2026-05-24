@@ -175,6 +175,16 @@ enum WorkoutSetLogging {
     }
 
     static func lastValues(
+        exercise: Exercise,
+        side: Side?,
+        in context: ModelContext
+    ) throws -> WorkoutSetValues? {
+        try lastSet(exercise: exercise, side: side, in: context).map {
+            WorkoutSetValues(weight: $0.weight, reps: $0.reps)
+        }
+    }
+
+    static func lastValues(
         exerciseName: String,
         side: Side?,
         in context: ModelContext
@@ -182,6 +192,23 @@ enum WorkoutSetLogging {
         try lastSet(exerciseName: exerciseName, side: side, in: context).map {
             WorkoutSetValues(weight: $0.weight, reps: $0.reps)
         }
+    }
+
+    static func lastSet(
+        exercise: Exercise,
+        side: Side?,
+        in context: ModelContext
+    ) throws -> WorkoutSet? {
+        let allSets = try context.fetch(FetchDescriptor<WorkoutSet>())
+
+        return allSets
+            .filter { set in
+                isSameExercise(set.exercise, as: exercise) && set.side == side
+            }
+            .sorted { lhs, rhs in
+                lhs.completedAt > rhs.completedAt
+            }
+            .first
     }
 
     static func lastSet(
@@ -199,6 +226,14 @@ enum WorkoutSetLogging {
                 lhs.completedAt > rhs.completedAt
             }
             .first
+    }
+
+    private static func isSameExercise(_ lhs: Exercise?, as rhs: Exercise) -> Bool {
+        guard let lhs else {
+            return false
+        }
+
+        return lhs === rhs || lhs.persistentModelID == rhs.persistentModelID
     }
 
     static func exerciseName(for set: WorkoutSet) -> String? {

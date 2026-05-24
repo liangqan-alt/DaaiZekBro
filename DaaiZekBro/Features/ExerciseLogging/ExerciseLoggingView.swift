@@ -187,14 +187,25 @@ struct ExerciseLoggingView: View {
     }
 
     private var lastReferenceSet: WorkoutSet? {
-        sets
-            .filter { set in
-                WorkoutSetLogging.exerciseName(for: set) == exerciseName && set.side == currentSide
+        guard let descriptor = exercise else {
+            return nil
+        }
+
+        if let exercise = descriptor.exercise {
+            if let identityMatch = try? WorkoutSetLogging.lastSet(
+                exercise: exercise,
+                side: currentSide,
+                in: modelContext
+            ) {
+                return identityMatch
             }
-            .sorted { lhs, rhs in
-                lhs.completedAt > rhs.completedAt
-            }
-            .first
+        }
+
+        return try? WorkoutSetLogging.lastSet(
+            exerciseName: exerciseName,
+            side: currentSide,
+            in: modelContext
+        )
     }
 
     private func metadataSection(session: WorkoutSession, exercise: WorkoutSessionExerciseDescriptor) -> some View {
@@ -435,11 +446,26 @@ struct ExerciseLoggingView: View {
 
     private func prefillFromLastSet() {
         do {
-            let values = try WorkoutSetLogging.lastValues(
-                exerciseName: exerciseName,
-                side: currentSide,
-                in: modelContext
-            )
+            let values: WorkoutSetValues?
+
+            if let exercise = exercise?.exercise {
+                values = try WorkoutSetLogging.lastValues(
+                    exercise: exercise,
+                    side: currentSide,
+                    in: modelContext
+                ) ?? WorkoutSetLogging.lastValues(
+                    exerciseName: exerciseName,
+                    side: currentSide,
+                    in: modelContext
+                )
+            } else {
+                values = try WorkoutSetLogging.lastValues(
+                    exerciseName: exerciseName,
+                    side: currentSide,
+                    in: modelContext
+                )
+            }
+
             viewModel.applyPrefill(values)
         } catch {
             viewModel.errorMessage = error.localizedDescription
