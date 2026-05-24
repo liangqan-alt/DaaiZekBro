@@ -6,7 +6,6 @@ struct CurrentWorkoutView: View {
     @Binding var path: [AppRoute]
     @Environment(\.modelContext) private var modelContext
     @Query private var sessions: [WorkoutSession]
-    @Query private var templates: [Template]
     @Query private var sets: [WorkoutSet]
     @State private var isShowingDiscardConfirmation = false
     @State private var errorMessage: String?
@@ -24,7 +23,7 @@ struct CurrentWorkoutView: View {
                                     .foregroundStyle(DZColor.ink700)
                                     .padding(14)
                             } else {
-                                ForEach(Array(exercises.enumerated()), id: \.element.name) { index, exercise in
+                                ForEach(Array(exercises.enumerated()), id: \.element.id) { index, exercise in
                                     if index > 0 {
                                         DZDivider()
                                     }
@@ -107,18 +106,12 @@ struct CurrentWorkoutView: View {
         sessions.first { $0.id == sessionID }
     }
 
-    private var resolvedTemplate: Template? {
-        guard let session else { return nil }
-
-        return session.template ?? templates.first { $0.name == session.templateNameSnapshot }
-    }
-
-    private var exercises: [Exercise] {
-        guard let resolvedTemplate else {
+    private var exercises: [WorkoutSessionExerciseDescriptor] {
+        guard let session else {
             return []
         }
 
-        return WorkoutSessionLifecycle.orderedExercises(for: resolvedTemplate)
+        return (try? WorkoutSessionLifecycle.exerciseDescriptors(for: session, in: modelContext)) ?? []
     }
 
     private var setCounts: [String: Int] {
@@ -198,7 +191,7 @@ struct CurrentWorkoutView: View {
 }
 
 private struct ExerciseRow: View {
-    let exercise: Exercise
+    let exercise: WorkoutSessionExerciseDescriptor
     let recordedSetCount: Int
 
     var body: some View {

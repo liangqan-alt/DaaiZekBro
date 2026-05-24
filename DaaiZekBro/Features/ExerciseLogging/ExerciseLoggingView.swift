@@ -10,7 +10,6 @@ struct ExerciseLoggingView: View {
 
     @Environment(\.modelContext) private var modelContext
     @Query private var sessions: [WorkoutSession]
-    @Query private var exercises: [Exercise]
     @Query private var sets: [WorkoutSet]
     @AppStorage(WeightUnit.storageKey) private var weightUnitRawValue = WeightUnit.kilograms.rawValue
     @State private var viewModel = ExerciseLoggingViewModel()
@@ -115,8 +114,16 @@ struct ExerciseLoggingView: View {
         sessions.first { $0.id == sessionID }
     }
 
-    private var exercise: Exercise? {
-        exercises.first { $0.name == exerciseName }
+    private var exercise: WorkoutSessionExerciseDescriptor? {
+        guard let session else {
+            return nil
+        }
+
+        return try? WorkoutSessionLifecycle.exerciseDescriptor(
+            named: exerciseName,
+            for: session,
+            in: modelContext
+        )
     }
 
     private var currentSide: Side? {
@@ -182,7 +189,7 @@ struct ExerciseLoggingView: View {
     private var lastReferenceSet: WorkoutSet? {
         sets
             .filter { set in
-                set.exerciseNameSnapshot == exerciseName && set.side == currentSide
+                WorkoutSetLogging.exerciseName(for: set) == exerciseName && set.side == currentSide
             }
             .sorted { lhs, rhs in
                 lhs.completedAt > rhs.completedAt
@@ -190,7 +197,7 @@ struct ExerciseLoggingView: View {
             .first
     }
 
-    private func metadataSection(session: WorkoutSession, exercise: Exercise) -> some View {
+    private func metadataSection(session: WorkoutSession, exercise: WorkoutSessionExerciseDescriptor) -> some View {
         DZSection {
             DZInfoRow("模板", value: displayName(for: session))
             DZDivider()
@@ -346,7 +353,7 @@ struct ExerciseLoggingView: View {
         }
     }
 
-    private func completionSection(for exercise: Exercise) -> some View {
+    private func completionSection(for exercise: WorkoutSessionExerciseDescriptor) -> some View {
         DZSection {
             Button(action: completeSet) {
                 Text(viewModel.completionButtonTitle(isUnilateral: exercise.isUnilateral))
@@ -370,7 +377,7 @@ struct ExerciseLoggingView: View {
         }
     }
 
-    private func recordedSetsSection(for exercise: Exercise) -> some View {
+    private func recordedSetsSection(for exercise: WorkoutSessionExerciseDescriptor) -> some View {
         DZSection("已记录组") {
             if loggedSets.isEmpty {
                 Text("暂无记录")

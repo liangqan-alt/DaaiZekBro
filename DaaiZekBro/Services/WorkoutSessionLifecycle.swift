@@ -43,8 +43,23 @@ enum WorkoutSessionLifecycle {
             startedAt: startedAt,
             timezoneIdentifier: timeZone.identifier
         )
+        let exerciseDescriptors = try exerciseDescriptors(for: template, in: context)
 
         context.insert(session)
+
+        for descriptor in exerciseDescriptors {
+            context.insert(
+                WorkoutSessionExerciseSnapshot(
+                    session: session,
+                    exercise: descriptor.exercise,
+                    exerciseNameSnapshot: descriptor.name,
+                    defaultRestSecondsSnapshot: descriptor.defaultRestSeconds,
+                    isUnilateralSnapshot: descriptor.isUnilateral,
+                    orderIndex: descriptor.orderIndex
+                )
+            )
+        }
+
         try context.save()
 
         return session
@@ -107,14 +122,88 @@ enum WorkoutSessionLifecycle {
     }
 
     static func exercises(for session: WorkoutSession, in context: ModelContext) throws -> [Exercise] {
+        try exerciseDescriptors(for: session, in: context).compactMap(\.exercise)
+    }
+
+    static func exerciseDescriptor(
+        named exerciseName: String,
+        for session: WorkoutSession,
+        in context: ModelContext
+    ) throws -> WorkoutSessionExerciseDescriptor? {
+        try exerciseDescriptors(for: session, in: context).first { $0.name == exerciseName }
+    }
+
+    static func exerciseDescriptors(
+        for session: WorkoutSession,
+        in context: ModelContext
+    ) throws -> [WorkoutSessionExerciseDescriptor] {
+        let snapshots = try context.fetch(FetchDescriptor<WorkoutSessionExerciseSnapshot>())
+            .filter { $0.session?.id == session.id }
+
+        if snapshots.isEmpty == false {
+            return snapshots
+                .sorted(by: snapshotSort)
+                .map { snapshot in
+                    WorkoutSessionExerciseDescriptor(
+                        exercise: snapshot.exercise,
+                        name: snapshot.exerciseNameSnapshot,
+                        defaultRestSeconds: snapshot.defaultRestSecondsSnapshot,
+                        isUnilateral: snapshot.isUnilateralSnapshot,
+                        orderIndex: snapshot.orderIndex
+                    )
+                }
+        }
+
         guard let template = try resolvedTemplate(for: session, in: context) else {
             return []
         }
 
-        return orderedExercises(for: template)
+        return try exerciseDescriptors(for: template, in: context)
+    }
+
+    static func exerciseDescriptors(
+        for template: Template,
+        in context: ModelContext
+    ) throws -> [WorkoutSessionExerciseDescriptor] {
+        let templateExercises = try context.fetch(FetchDescriptor<TemplateExercise>())
+            .filter { $0.template === template }
+
+        let orderedExerciseDescriptors: [(exercise: Exercise, orderIndex: Int)]
+
+        if templateExercises.isEmpty {
+            orderedExerciseDescriptors = orderedExercises(for: template).enumerated().map { index, exercise in
+                (exercise: exercise, orderIndex: index)
+            }
+        } else {
+            orderedExerciseDescriptors = templateExercises
+                .sorted(by: templateExerciseSort)
+                .compactMap { templateExercise in
+                    guard let exercise = templateExercise.exercise else { return nil }
+
+                    return (exercise: exercise, orderIndex: templateExercise.orderIndex)
+                }
+        }
+
+        return orderedExerciseDescriptors.map { exercise, orderIndex in
+            WorkoutSessionExerciseDescriptor(
+                exercise: exercise,
+                name: exercise.name,
+                defaultRestSeconds: exercise.defaultRestSeconds,
+                isUnilateral: exercise.isUnilateral,
+                orderIndex: orderIndex
+            )
+        }
     }
 
     static func orderedExercises(for template: Template) -> [Exercise] {
+        let linkedExercises = template.templateExercises
+            .sorted(by: templateExerciseSort)
+            .compactMap(\.exercise)
+
+        if linkedExercises.isEmpty == false {
+            return linkedExercises
+        }
+
         guard let seedTemplate = SeedData.templateExerciseNames.first(where: { $0.name == template.name }) else {
             return template.exercises
         }
@@ -122,6 +211,25 @@ enum WorkoutSessionLifecycle {
         let exercisesByName = Dictionary(uniqueKeysWithValues: template.exercises.map { ($0.name, $0) })
 
         return seedTemplate.exerciseNames.compactMap { exercisesByName[$0] }
+    }
+
+    private static func snapshotSort(
+        _ lhs: WorkoutSessionExerciseSnapshot,
+        _ rhs: WorkoutSessionExerciseSnapshot
+    ) -> Bool {
+        if lhs.orderIndex != rhs.orderIndex {
+            return lhs.orderIndex < rhs.orderIndex
+        }
+
+        return lhs.exerciseNameSnapshot < rhs.exerciseNameSnapshot
+    }
+
+    private static func templateExerciseSort(_ lhs: TemplateExercise, _ rhs: TemplateExercise) -> Bool {
+        if lhs.orderIndex != rhs.orderIndex {
+            return lhs.orderIndex < rhs.orderIndex
+        }
+
+        return (lhs.exercise?.name ?? "") < (rhs.exercise?.name ?? "")
     }
 
     static func recordedSetCountsByExerciseName(

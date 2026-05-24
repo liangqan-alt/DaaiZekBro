@@ -54,6 +54,22 @@ struct NotificationNavigationTests {
         ])
     }
 
+    @Test func notificationRoutesUsingSessionSnapshotsAfterTemplateDeletion() throws {
+        let context = try makeInMemoryContext()
+        try SeedData.writeAndDedup(in: context)
+        let template = try template(named: "Push A", in: context)
+        let session = try WorkoutSessionLifecycle.createSession(for: template, in: context)
+        let payload = RestNotificationPayload(sessionID: session.id, exerciseName: "固定器械卧推")
+
+        context.delete(template)
+        try context.save()
+
+        #expect(try NotificationNavigationResolver.route(for: payload, in: context) == [
+            .currentWorkout(sessionID: session.id),
+            .exerciseLogging(sessionID: session.id, exerciseName: "固定器械卧推"),
+        ])
+    }
+
     @Test func notificationForMissingSessionRoutesHome() throws {
         let context = try makeInMemoryContext()
         let payload = RestNotificationPayload(sessionID: UUID(), exerciseName: "固定器械卧推")
@@ -65,7 +81,9 @@ struct NotificationNavigationTests {
         let schema = Schema([
             Exercise.self,
             Template.self,
+            TemplateExercise.self,
             WorkoutSession.self,
+            WorkoutSessionExerciseSnapshot.self,
             WorkoutSet.self,
         ])
         let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)

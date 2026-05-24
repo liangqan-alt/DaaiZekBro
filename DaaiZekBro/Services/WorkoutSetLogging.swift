@@ -58,27 +58,33 @@ enum WorkoutSetLogging {
         in context: ModelContext
     ) throws -> WorkoutSet {
         let session = try session(with: sessionID, in: context)
-        let exercise = try exercise(named: exerciseName, in: context)
+
+        guard let exerciseDescriptor = try WorkoutSessionLifecycle.exerciseDescriptor(
+            named: exerciseName,
+            for: session,
+            in: context
+        ) else {
+            throw WorkoutSetLoggingError.exerciseNotFound
+        }
 
         guard session.endedAt == nil else {
             throw WorkoutSetLoggingError.sessionAlreadyEnded
         }
 
         try validate(weight: weight, reps: reps, rpe: rpe)
-        let normalizedSide = try validatedSide(side, for: exercise)
-        let orderIndex = try exerciseOrderIndex(for: exerciseName, in: session, context: context)
+        let normalizedSide = try validatedSide(side, isUnilateral: exerciseDescriptor.isUnilateral)
         let nextSetIndex = try sets(
             sessionID: sessionID,
-            exerciseName: exerciseName,
+            exerciseName: exerciseDescriptor.name,
             side: normalizedSide,
             in: context
         ).count + 1
 
         let set = WorkoutSet(
             session: session,
-            exercise: exercise,
-            exerciseNameSnapshot: exercise.name,
-            exerciseOrderIndex: orderIndex,
+            exercise: exerciseDescriptor.exercise,
+            exerciseNameSnapshot: exerciseDescriptor.name,
+            exerciseOrderIndex: exerciseDescriptor.orderIndex,
             setIndex: nextSetIndex,
             weight: weight,
             reps: reps,
@@ -187,7 +193,7 @@ enum WorkoutSetLogging {
 
         return allSets
             .filter { set in
-                set.exerciseNameSnapshot == exerciseName && set.side == side
+                self.exerciseName(for: set) == exerciseName && set.side == side
             }
             .sorted { lhs, rhs in
                 lhs.completedAt > rhs.completedAt
@@ -227,8 +233,8 @@ enum WorkoutSetLogging {
         }
     }
 
-    private static func validatedSide(_ side: Side?, for exercise: Exercise) throws -> Side? {
-        if exercise.isUnilateral {
+    private static func validatedSide(_ side: Side?, isUnilateral: Bool) throws -> Side? {
+        if isUnilateral {
             guard let side else {
                 throw WorkoutSetLoggingError.missingSideForUnilateralExercise
             }
@@ -253,23 +259,4 @@ enum WorkoutSetLogging {
         return session
     }
 
-    private static func exercise(named name: String, in context: ModelContext) throws -> Exercise {
-        let exercises = try context.fetch(FetchDescriptor<Exercise>())
-
-        guard let exercise = exercises.first(where: { $0.name == name }) else {
-            throw WorkoutSetLoggingError.exerciseNotFound
-        }
-
-        return exercise
-    }
-
-    private static func exerciseOrderIndex(
-        for exerciseName: String,
-        in session: WorkoutSession,
-        context: ModelContext
-    ) throws -> Int {
-        let orderedExercises = try WorkoutSessionLifecycle.exercises(for: session, in: context)
-
-        return orderedExercises.firstIndex { $0.name == exerciseName } ?? 0
-    }
 }

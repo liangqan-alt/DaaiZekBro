@@ -17,7 +17,9 @@ struct DaaiZekBroApp: App {
         let schema = Schema([
             Exercise.self,
             Template.self,
+            TemplateExercise.self,
             WorkoutSession.self,
+            WorkoutSessionExerciseSnapshot.self,
             WorkoutSet.self,
         ])
         let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)

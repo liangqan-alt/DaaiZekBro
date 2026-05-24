@@ -20,10 +20,21 @@ struct DaaiZekBroTests {
 
         let exercises = try fetchExercises(in: context)
         let templates = try fetchTemplates(in: context)
+        let orderedTemplates = templates.sorted { $0.sortIndex < $1.sortIndex }
 
         #expect(exercises.count == 19)
         #expect(templates.count == 6)
+        #expect(orderedTemplates.map(\.name) == SeedData.templateExerciseNames.map(\.name))
+        #expect(orderedTemplates.map(\.sortIndex) == Array(0..<6))
         #expect(templateCounts(templates) == [
+            "Legs A": 5,
+            "Legs B": 6,
+            "Pull A": 5,
+            "Pull B": 5,
+            "Push A": 6,
+            "Push B": 6,
+        ])
+        #expect(try templateExerciseCounts(in: context) == [
             "Legs A": 5,
             "Legs B": 6,
             "Pull A": 5,
@@ -41,6 +52,74 @@ struct DaaiZekBroTests {
 
         #expect(try fetchExercises(in: context).count == 19)
         #expect(try fetchTemplates(in: context).count == 6)
+        #expect(try fetchTemplateExercises(in: context).count == 33)
+    }
+
+    @Test func seedDataDoesNotRestoreDeletedOrOverwriteEditedSeedData() throws {
+        let context = try makeInMemoryContext()
+
+        try SeedData.writeAndDedup(in: context)
+
+        let benchPress = try exercise(named: "固定器械卧推", in: context)
+        let deletedExercise = try exercise(named: "坐姿夹胸", in: context)
+        let deletedTemplate = try template(named: "Pull B", in: context)
+
+        benchPress.defaultRestSeconds = 333
+        benchPress.isUnilateral = true
+        context.delete(deletedExercise)
+        context.delete(deletedTemplate)
+        try context.save()
+
+        try SeedData.writeAndDedup(in: context)
+
+        let exerciseNames = try fetchExercises(in: context).map(\.name)
+        let templateNames = try fetchTemplates(in: context).map(\.name)
+        let editedBenchPress = try exercise(named: "固定器械卧推", in: context)
+
+        #expect(exerciseNames.contains("坐姿夹胸") == false)
+        #expect(templateNames.contains("Pull B") == false)
+        #expect(editedBenchPress.defaultRestSeconds == 333)
+        #expect(editedBenchPress.isUnilateral)
+    }
+
+    @Test func seedDataDoesNotResetTemplateExerciseOrder() throws {
+        let context = try makeInMemoryContext()
+
+        try SeedData.writeAndDedup(in: context)
+
+        let template = try template(named: "Push A", in: context)
+        let links = try templateExerciseLinks(for: template, in: context)
+
+        links[0].orderIndex = 1
+        links[1].orderIndex = 0
+        try context.save()
+
+        try SeedData.writeAndDedup(in: context)
+
+        #expect(Array(try templateExerciseNames(for: template, in: context).prefix(2)) == [
+            "上斜推胸机",
+            "固定器械卧推",
+        ])
+    }
+
+    @Test func seedDataBackfillsExistingTemplateSortIndexesAndNextAppendIndex() throws {
+        let context = try makeInMemoryContext()
+        let pushTemplate = Template(name: "Push A")
+        let pullTemplate = Template(name: "Pull A")
+        let customTemplate = Template(name: "Custom")
+
+        context.insert(customTemplate)
+        context.insert(pullTemplate)
+        context.insert(pushTemplate)
+        try context.save()
+
+        try SeedData.writeAndDedup(in: context)
+
+        let orderedTemplates = try fetchTemplates(in: context).sorted { $0.sortIndex < $1.sortIndex }
+
+        #expect(orderedTemplates.map(\.name) == ["Push A", "Pull A", "Custom"])
+        #expect(orderedTemplates.map(\.sortIndex) == [0, 1, 2])
+        #expect(try SeedData.nextTemplateSortIndex(in: context) == 3)
     }
 
     @Test func onlyKneelingSingleLegCurlIsUnilateral() throws {
@@ -100,6 +179,47 @@ struct DaaiZekBroTests {
         })
     }
 
+    @Test func seedDataDedupsTemplatesWithoutDuplicatingTemplateExerciseLinks() throws {
+        let context = try makeInMemoryContext()
+        let exercises = SeedData.exercises()
+
+        for exercise in exercises {
+            context.insert(exercise)
+        }
+
+        let exerciseMap = Dictionary(uniqueKeysWithValues: exercises.map { ($0.name, $0) })
+        let firstTemplate = Template(
+            name: "Push A",
+            exercises: ["固定器械卧推", "上斜推胸机"].compactMap { exerciseMap[$0] }
+        )
+        let duplicateTemplate = Template(
+            name: "Push A",
+            exercises: ["固定器械卧推", "上斜推胸机"].compactMap { exerciseMap[$0] }
+        )
+
+        context.insert(firstTemplate)
+        context.insert(duplicateTemplate)
+
+        for (index, exercise) in firstTemplate.exercises.enumerated() {
+            context.insert(TemplateExercise(template: firstTemplate, exercise: exercise, orderIndex: index))
+        }
+
+        for (index, exercise) in duplicateTemplate.exercises.enumerated() {
+            context.insert(TemplateExercise(template: duplicateTemplate, exercise: exercise, orderIndex: index))
+        }
+
+        try context.save()
+        try SeedData.writeAndDedup(in: context)
+
+        let templates = try fetchTemplates(in: context)
+        let remainingTemplate = try template(named: "Push A", in: context)
+        let remainingLinks = try templateExerciseLinks(for: remainingTemplate, in: context)
+
+        #expect(templates.filter { $0.name == "Push A" }.count == 1)
+        #expect(remainingLinks.map(\.orderIndex) == [0, 1])
+        #expect(remainingLinks.compactMap { $0.exercise?.name } == ["固定器械卧推", "上斜推胸机"])
+    }
+
     @Test func creatingSessionCopiesTemplateMetadata() throws {
         let context = try makeInMemoryContext()
         try SeedData.writeAndDedup(in: context)
@@ -122,6 +242,15 @@ struct DaaiZekBroTests {
         #expect(session.startedAt == startedAt)
         #expect(session.timezoneIdentifier == "Asia/Shanghai")
         #expect(session.endedAt == nil)
+        #expect(try WorkoutSessionLifecycle.exerciseDescriptors(for: session, in: context).map(\.name) == [
+            "固定器械卧推",
+            "上斜推胸机",
+            "固定器械推肩",
+            "坐姿夹胸",
+            "哑铃侧平举",
+            "坐姿肱三头伸展机",
+        ])
+        #expect(try fetchSessionExerciseSnapshots(in: context).count == 6)
         #expect(try openSessionCount(in: context) == 1)
     }
 
@@ -275,6 +404,7 @@ struct DaaiZekBroTests {
         let template = try template(named: "Push A", in: context)
         let session = try WorkoutSessionLifecycle.createSession(for: template, in: context)
 
+        try deleteSnapshots(for: session, in: context)
         session.template = nil
         try context.save()
 
@@ -282,6 +412,65 @@ struct DaaiZekBroTests {
         let expectedExerciseNames = try seedExerciseNames(for: "Push A")
 
         #expect(exerciseNames == expectedExerciseNames)
+    }
+
+    @Test func openSessionUsesExerciseSnapshotsAfterTemplateDeletion() throws {
+        let context = try makeInMemoryContext()
+        try SeedData.writeAndDedup(in: context)
+        let template = try template(named: "Push A", in: context)
+        let session = try WorkoutSessionLifecycle.createSession(for: template, in: context)
+
+        context.delete(template)
+        try context.save()
+
+        let exerciseNames = try WorkoutSessionLifecycle.exerciseDescriptors(for: session, in: context).map(\.name)
+        let expectedExerciseNames = try seedExerciseNames(for: "Push A")
+        let set = try WorkoutSetLogging.recordSet(
+            sessionID: session.id,
+            exerciseName: "固定器械卧推",
+            weight: 30,
+            reps: 8,
+            rpe: nil,
+            side: nil,
+            in: context
+        )
+
+        #expect(exerciseNames == expectedExerciseNames)
+        #expect(set.exerciseNameSnapshot == "固定器械卧推")
+        #expect(set.exerciseOrderIndex == 0)
+        #expect(set.setIndex == 1)
+    }
+
+    @Test func openSessionExerciseSnapshotsDoNotFollowLaterTemplateEdits() throws {
+        let context = try makeInMemoryContext()
+        try SeedData.writeAndDedup(in: context)
+        let template = try template(named: "Push A", in: context)
+        let benchPress = try exercise(named: "固定器械卧推", in: context)
+        let session = try WorkoutSessionLifecycle.createSession(for: template, in: context)
+        let links = try templateExerciseLinks(for: template, in: context)
+
+        links[0].orderIndex = 1
+        links[1].orderIndex = 0
+        benchPress.defaultRestSeconds = 333
+        benchPress.isUnilateral = true
+        try context.save()
+
+        let descriptors = try WorkoutSessionLifecycle.exerciseDescriptors(for: session, in: context)
+        let set = try WorkoutSetLogging.recordSet(
+            sessionID: session.id,
+            exerciseName: "固定器械卧推",
+            weight: 30,
+            reps: 8,
+            rpe: nil,
+            side: nil,
+            in: context
+        )
+
+        #expect(Array(descriptors.map(\.name).prefix(2)) == ["固定器械卧推", "上斜推胸机"])
+        #expect(descriptors[0].defaultRestSeconds == 120)
+        #expect(descriptors[0].isUnilateral == false)
+        #expect(set.exerciseOrderIndex == 0)
+        #expect(set.side == nil)
     }
 
     @Test func recordedSetCountsUseSnapshotsAndIgnoreOtherSessions() throws {
@@ -360,6 +549,7 @@ struct DaaiZekBroTests {
         let exercise = try exercise(named: "固定器械推肩", in: context)
         let session = try WorkoutSessionLifecycle.createSession(for: template, in: context)
 
+        try deleteSnapshots(for: session, in: context)
         session.template = nil
         try context.save()
 
@@ -899,7 +1089,9 @@ struct DaaiZekBroTests {
         let schema = Schema([
             Exercise.self,
             Template.self,
+            TemplateExercise.self,
             WorkoutSession.self,
+            WorkoutSessionExerciseSnapshot.self,
             WorkoutSet.self,
         ])
         let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
@@ -916,8 +1108,16 @@ struct DaaiZekBroTests {
         try context.fetch(FetchDescriptor<Template>(sortBy: [SortDescriptor(\Template.name)]))
     }
 
+    private func fetchTemplateExercises(in context: ModelContext) throws -> [TemplateExercise] {
+        try context.fetch(FetchDescriptor<TemplateExercise>())
+    }
+
     private func fetchSessions(in context: ModelContext) throws -> [WorkoutSession] {
         try context.fetch(FetchDescriptor<WorkoutSession>())
+    }
+
+    private func fetchSessionExerciseSnapshots(in context: ModelContext) throws -> [WorkoutSessionExerciseSnapshot] {
+        try context.fetch(FetchDescriptor<WorkoutSessionExerciseSnapshot>())
     }
 
     private func fetchSets(in context: ModelContext) throws -> [WorkoutSet] {
@@ -926,6 +1126,21 @@ struct DaaiZekBroTests {
 
     private func templateCounts(_ templates: [Template]) -> [String: Int] {
         Dictionary(uniqueKeysWithValues: templates.map { ($0.name, $0.exercises.count) })
+    }
+
+    private func templateExerciseCounts(in context: ModelContext) throws -> [String: Int] {
+        let links = try fetchTemplateExercises(in: context)
+        var counts: [String: Int] = [:]
+
+        for link in links {
+            guard let templateName = link.template?.name, link.exercise != nil else {
+                continue
+            }
+
+            counts[templateName, default: 0] += 1
+        }
+
+        return counts
     }
 
     private func openSessionCount(in context: ModelContext) throws -> Int {
@@ -946,6 +1161,28 @@ struct DaaiZekBroTests {
         }
 
         return exercise
+    }
+
+    private func templateExerciseLinks(for template: Template, in context: ModelContext) throws -> [TemplateExercise] {
+        try fetchTemplateExercises(in: context)
+            .filter { $0.template === template }
+            .sorted { lhs, rhs in
+                if lhs.orderIndex != rhs.orderIndex {
+                    return lhs.orderIndex < rhs.orderIndex
+                }
+
+                return (lhs.exercise?.name ?? "") < (rhs.exercise?.name ?? "")
+            }
+    }
+
+    private func templateExerciseNames(for template: Template, in context: ModelContext) throws -> [String] {
+        try templateExerciseLinks(for: template, in: context).compactMap { $0.exercise?.name }
+    }
+
+    private func deleteSnapshots(for session: WorkoutSession, in context: ModelContext) throws {
+        for snapshot in try fetchSessionExerciseSnapshots(in: context) where snapshot.session?.id == session.id {
+            context.delete(snapshot)
+        }
     }
 
     private func seedExerciseNames(for templateName: String) throws -> [String] {

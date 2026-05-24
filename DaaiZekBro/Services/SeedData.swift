@@ -77,86 +77,238 @@ enum SeedData {
     static func templates(allExercises: [Exercise]) -> [Template] {
         let exercisesByName = Dictionary(uniqueKeysWithValues: allExercises.map { ($0.name, $0) })
 
-        return templateExerciseNames.map { template in
+        return templateExerciseNames.enumerated().map { index, template in
             Template(
                 name: template.name,
-                exercises: template.exerciseNames.compactMap { exercisesByName[$0] }
+                exercises: template.exerciseNames.compactMap { exercisesByName[$0] },
+                sortIndex: index
             )
         }
     }
 
     @MainActor
     static func writeAndDedup(in context: ModelContext) throws {
-        let canonicalExercises = try dedupExercises(in: context)
-        let exercisesByName = try writeMissingExercises(in: context, existing: canonicalExercises)
-        let canonicalTemplates = try dedupTemplates(in: context)
-
-        for templateDefinition in templateExerciseNames {
-            let seedExercises = templateDefinition.exerciseNames.compactMap { exercisesByName[$0] }
-
-            if let existingTemplate = canonicalTemplates[templateDefinition.name] {
-                existingTemplate.exercises = seedExercises
-            } else {
-                context.insert(Template(name: templateDefinition.name, exercises: seedExercises))
-            }
+        if try isStoreEmpty(in: context) {
+            try writeInitialSeed(in: context)
+            try context.save()
+            return
         }
 
+        try dedupExercises(in: context)
+        try dedupTemplates(in: context)
+        try backfillTemplateSortIndexes(in: context)
+        try backfillTemplateExercises(in: context)
         try context.save()
     }
 
     @MainActor
-    private static func dedupExercises(in context: ModelContext) throws -> [String: Exercise] {
+    static func nextTemplateSortIndex(in context: ModelContext) throws -> Int {
+        let templates = try context.fetch(FetchDescriptor<Template>())
+
+        return (templates.map(\.sortIndex).max() ?? -1) + 1
+    }
+
+    @MainActor
+    private static func isStoreEmpty(in context: ModelContext) throws -> Bool {
+        let exercises = try context.fetch(FetchDescriptor<Exercise>())
+        let templates = try context.fetch(FetchDescriptor<Template>())
+        let sessions = try context.fetch(FetchDescriptor<WorkoutSession>())
+        let sets = try context.fetch(FetchDescriptor<WorkoutSet>())
+
+        return exercises.isEmpty && templates.isEmpty && sessions.isEmpty && sets.isEmpty
+    }
+
+    @MainActor
+    private static func writeInitialSeed(in context: ModelContext) throws {
+        let seedExercises = exercises()
+        let exercisesByName = Dictionary(uniqueKeysWithValues: seedExercises.map { ($0.name, $0) })
+
+        for exercise in seedExercises {
+            context.insert(exercise)
+        }
+
+        for (templateIndex, templateDefinition) in templateExerciseNames.enumerated() {
+            let seedExercises = templateDefinition.exerciseNames.compactMap { exercisesByName[$0] }
+            let template = Template(
+                name: templateDefinition.name,
+                exercises: seedExercises,
+                sortIndex: templateIndex
+            )
+
+            context.insert(template)
+
+            for (exerciseIndex, exercise) in seedExercises.enumerated() {
+                context.insert(TemplateExercise(template: template, exercise: exercise, orderIndex: exerciseIndex))
+            }
+        }
+    }
+
+    @MainActor
+    private static func dedupExercises(in context: ModelContext) throws {
         let allExercises = try context.fetch(FetchDescriptor<Exercise>())
         let groupedExercises = Dictionary(grouping: allExercises, by: \.name)
-        var canonicalExercises: [String: Exercise] = [:]
+        let templates = try context.fetch(FetchDescriptor<Template>())
+        let templateExercises = try context.fetch(FetchDescriptor<TemplateExercise>())
+        let sessionSnapshots = try context.fetch(FetchDescriptor<WorkoutSessionExerciseSnapshot>())
+        let workoutSets = try context.fetch(FetchDescriptor<WorkoutSet>())
 
-        for (name, duplicates) in groupedExercises {
+        for (_, duplicates) in groupedExercises {
             guard let survivor = duplicates.first else { continue }
-            canonicalExercises[name] = survivor
 
             for duplicate in duplicates.dropFirst() {
+                for template in templates where template.exercises.contains(where: { $0 === duplicate }) {
+                    template.exercises = template.exercises.map { exercise in
+                        exercise === duplicate ? survivor : exercise
+                    }
+                }
+
+                for templateExercise in templateExercises where templateExercise.exercise === duplicate {
+                    templateExercise.exercise = survivor
+                }
+
+                for snapshot in sessionSnapshots where snapshot.exercise === duplicate {
+                    snapshot.exercise = survivor
+                }
+
+                for set in workoutSets where set.exercise === duplicate {
+                    set.exercise = survivor
+                }
+
                 context.delete(duplicate)
             }
         }
-
-        return canonicalExercises
     }
 
     @MainActor
-    private static func writeMissingExercises(
-        in context: ModelContext,
-        existing: [String: Exercise]
-    ) throws -> [String: Exercise] {
-        var exercisesByName = existing
-
-        for seedExercise in exercises() {
-            if let existingExercise = exercisesByName[seedExercise.name] {
-                existingExercise.defaultRestSeconds = seedExercise.defaultRestSeconds
-                existingExercise.isUnilateral = seedExercise.isUnilateral
-            } else {
-                context.insert(seedExercise)
-                exercisesByName[seedExercise.name] = seedExercise
-            }
-        }
-
-        return exercisesByName
-    }
-
-    @MainActor
-    private static func dedupTemplates(in context: ModelContext) throws -> [String: Template] {
+    private static func dedupTemplates(in context: ModelContext) throws {
         let allTemplates = try context.fetch(FetchDescriptor<Template>())
         let groupedTemplates = Dictionary(grouping: allTemplates, by: \.name)
-        var canonicalTemplates: [String: Template] = [:]
+        let sessions = try context.fetch(FetchDescriptor<WorkoutSession>())
+        let templateExercises = try context.fetch(FetchDescriptor<TemplateExercise>())
 
-        for (name, duplicates) in groupedTemplates {
+        for (_, duplicates) in groupedTemplates {
             guard let survivor = duplicates.first else { continue }
-            canonicalTemplates[name] = survivor
+            var survivorHasTemplateExercises = templateExercises.contains { $0.template === survivor }
 
             for duplicate in duplicates.dropFirst() {
+                if survivor.exercises.isEmpty {
+                    survivor.exercises = duplicate.exercises
+                }
+
+                for session in sessions where session.template === duplicate {
+                    session.template = survivor
+                }
+
+                for templateExercise in templateExercises where templateExercise.template === duplicate {
+                    if survivorHasTemplateExercises {
+                        context.delete(templateExercise)
+                    } else {
+                        templateExercise.template = survivor
+                    }
+                }
+
+                survivorHasTemplateExercises = true
                 context.delete(duplicate)
             }
         }
+    }
 
-        return canonicalTemplates
+    @MainActor
+    private static func backfillTemplateSortIndexes(in context: ModelContext) throws {
+        let templates = try context.fetch(FetchDescriptor<Template>())
+        guard templates.isEmpty == false else { return }
+
+        let sortedIndexes = templates.map(\.sortIndex).sorted()
+        let expectedIndexes = Array(0..<templates.count)
+
+        guard sortedIndexes != expectedIndexes else {
+            return
+        }
+
+        let allIndexesAreDefault = Set(templates.map(\.sortIndex)) == Set([0])
+        let seedIndexes = Dictionary(uniqueKeysWithValues: templateExerciseNames.enumerated().map { index, template in
+            (template.name, index)
+        })
+
+        let orderedTemplates = templates.sorted { lhs, rhs in
+            if allIndexesAreDefault {
+                let lhsSeedIndex = seedIndexes[lhs.name]
+                let rhsSeedIndex = seedIndexes[rhs.name]
+
+                switch (lhsSeedIndex, rhsSeedIndex) {
+                case let (lhsSeedIndex?, rhsSeedIndex?):
+                    return lhsSeedIndex < rhsSeedIndex
+                case (_?, nil):
+                    return true
+                case (nil, _?):
+                    return false
+                case (nil, nil):
+                    return lhs.name < rhs.name
+                }
+            }
+
+            if lhs.sortIndex != rhs.sortIndex {
+                return lhs.sortIndex < rhs.sortIndex
+            }
+
+            return lhs.name < rhs.name
+        }
+
+        for (index, template) in orderedTemplates.enumerated() {
+            template.sortIndex = index
+        }
+    }
+
+    @MainActor
+    private static func backfillTemplateExercises(in context: ModelContext) throws {
+        let templates = try context.fetch(FetchDescriptor<Template>())
+        let allTemplateExercises = try context.fetch(FetchDescriptor<TemplateExercise>())
+
+        for template in templates {
+            let links = allTemplateExercises.filter { $0.template === template }
+
+            if links.isEmpty {
+                let orderedExercises = orderedExercisesForBackfill(template)
+
+                for (index, exercise) in orderedExercises.enumerated() {
+                    context.insert(TemplateExercise(template: template, exercise: exercise, orderIndex: index))
+                }
+
+                continue
+            }
+
+            for (index, link) in links.sorted(by: templateExerciseSort).enumerated() {
+                link.orderIndex = index
+            }
+        }
+    }
+
+    private static func orderedExercisesForBackfill(_ template: Template) -> [Exercise] {
+        guard let seedTemplate = templateExerciseNames.first(where: { $0.name == template.name }) else {
+            return template.exercises
+        }
+
+        var remainingExercises = template.exercises
+        var orderedExercises: [Exercise] = []
+
+        for exerciseName in seedTemplate.exerciseNames {
+            guard let exerciseIndex = remainingExercises.firstIndex(where: { $0.name == exerciseName }) else {
+                continue
+            }
+
+            orderedExercises.append(remainingExercises.remove(at: exerciseIndex))
+        }
+
+        orderedExercises.append(contentsOf: remainingExercises)
+
+        return orderedExercises
+    }
+
+    private static func templateExerciseSort(_ lhs: TemplateExercise, _ rhs: TemplateExercise) -> Bool {
+        if lhs.orderIndex != rhs.orderIndex {
+            return lhs.orderIndex < rhs.orderIndex
+        }
+
+        return (lhs.exercise?.name ?? "") < (rhs.exercise?.name ?? "")
     }
 }

@@ -321,7 +321,14 @@ private enum CSVExportRangeOption: String, CaseIterable, Identifiable {
         SettingsView()
     }
     .modelContainer(
-        for: [Exercise.self, Template.self, WorkoutSession.self, WorkoutSet.self],
+        for: [
+            Exercise.self,
+            Template.self,
+            TemplateExercise.self,
+            WorkoutSession.self,
+            WorkoutSessionExerciseSnapshot.self,
+            WorkoutSet.self,
+        ],
         inMemory: true
     )
 }

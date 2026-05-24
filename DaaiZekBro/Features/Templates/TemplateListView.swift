@@ -4,7 +4,7 @@ import SwiftUI
 struct TemplateListView: View {
     @Binding var path: [AppRoute]
     @Environment(\.modelContext) private var modelContext
-    @Query(sort: \Template.name) private var templates: [Template]
+    @Query private var templates: [Template]
     @Query private var sessions: [WorkoutSession]
     @State private var pendingTemplateName: String?
     @State private var errorMessage: String?
@@ -25,7 +25,7 @@ struct TemplateListView: View {
                     ForEach(orderedTemplates) { template in
                         DZTemplateCard(
                             name: template.name,
-                            exerciseCount: template.exercises.count
+                            exerciseCount: exerciseCount(for: template)
                         ) {
                             startOrResolveConflict(for: template)
                         }
@@ -102,9 +102,19 @@ struct TemplateListView: View {
     }
 
     private var orderedTemplates: [Template] {
-        let templatesByName = Dictionary(uniqueKeysWithValues: templates.map { ($0.name, $0) })
+        templates.sorted { lhs, rhs in
+            if lhs.sortIndex != rhs.sortIndex {
+                return lhs.sortIndex < rhs.sortIndex
+            }
 
-        return SeedData.templateExerciseNames.compactMap { templatesByName[$0.name] }
+            return lhs.name < rhs.name
+        }
+    }
+
+    private func exerciseCount(for template: Template) -> Int {
+        let linkedExerciseCount = template.templateExercises.filter { $0.exercise != nil }.count
+
+        return linkedExerciseCount == 0 ? template.exercises.count : linkedExerciseCount
     }
 
     private var currentOpenSession: WorkoutSession? {

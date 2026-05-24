@@ -28,7 +28,7 @@ enum NotificationNavigationResolver {
             return []
         }
 
-        let exerciseNames = try WorkoutSessionLifecycle.exercises(for: session, in: context).map(\.name)
+        let exerciseNames = try WorkoutSessionLifecycle.exerciseDescriptors(for: session, in: context).map(\.name)
         guard exerciseNames.contains(payload.exerciseName) else {
             return [.currentWorkout(sessionID: session.id)]
         }

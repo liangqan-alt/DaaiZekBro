@@ -70,12 +70,29 @@ final class Exercise {
 @Model
 final class Template {
     var name: String = ""
+    var sortIndex: Int = 0
     @Relationship(inverse: \Exercise.templates)
     var exercises: [Exercise] = []
+    @Relationship(deleteRule: .cascade, inverse: \TemplateExercise.template)
+    var templateExercises: [TemplateExercise] = []
 
-    init(name: String = "", exercises: [Exercise] = []) {
+    init(name: String = "", exercises: [Exercise] = [], sortIndex: Int = 0) {
         self.name = name
         self.exercises = exercises
+        self.sortIndex = sortIndex
+    }
+}
+
+@Model
+final class TemplateExercise {
+    var template: Template?
+    var exercise: Exercise?
+    var orderIndex: Int = 0
+
+    init(template: Template? = nil, exercise: Exercise? = nil, orderIndex: Int = 0) {
+        self.template = template
+        self.exercise = exercise
+        self.orderIndex = orderIndex
     }
 }
 
@@ -87,6 +104,8 @@ final class WorkoutSession {
     var startedAt: Date = Date()
     var endedAt: Date?
     var timezoneIdentifier: String = TimeZone.current.identifier
+    @Relationship(deleteRule: .cascade, inverse: \WorkoutSessionExerciseSnapshot.session)
+    var exerciseSnapshots: [WorkoutSessionExerciseSnapshot] = []
 
     init(
         id: UUID = UUID(),
@@ -102,6 +121,44 @@ final class WorkoutSession {
         self.startedAt = startedAt
         self.endedAt = endedAt
         self.timezoneIdentifier = timezoneIdentifier
+    }
+}
+
+@Model
+final class WorkoutSessionExerciseSnapshot {
+    var session: WorkoutSession?
+    var exercise: Exercise?
+    var exerciseNameSnapshot: String = ""
+    var defaultRestSecondsSnapshot: Int = 90
+    var isUnilateralSnapshot: Bool = false
+    var orderIndex: Int = 0
+
+    init(
+        session: WorkoutSession? = nil,
+        exercise: Exercise? = nil,
+        exerciseNameSnapshot: String = "",
+        defaultRestSecondsSnapshot: Int = 90,
+        isUnilateralSnapshot: Bool = false,
+        orderIndex: Int = 0
+    ) {
+        self.session = session
+        self.exercise = exercise
+        self.exerciseNameSnapshot = exerciseNameSnapshot
+        self.defaultRestSecondsSnapshot = defaultRestSecondsSnapshot
+        self.isUnilateralSnapshot = isUnilateralSnapshot
+        self.orderIndex = orderIndex
+    }
+}
+
+struct WorkoutSessionExerciseDescriptor: Identifiable {
+    let exercise: Exercise?
+    let name: String
+    let defaultRestSeconds: Int
+    let isUnilateral: Bool
+    let orderIndex: Int
+
+    var id: String {
+        "\(orderIndex)-\(name)"
     }
 }
 
