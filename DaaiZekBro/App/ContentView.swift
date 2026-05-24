@@ -36,6 +36,8 @@ struct ContentView: View {
                     CurrentWorkoutView(sessionID: sessionID, path: $path)
                 case .exerciseLogging(let sessionID, let exerciseName):
                     ExerciseLoggingView(sessionID: sessionID, exerciseName: exerciseName)
+                case .templateEdit(let templateID):
+                    TemplateEditView(templateID: templateID)
                 case .settings:
                     SettingsView()
                 }

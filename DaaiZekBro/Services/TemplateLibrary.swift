@@ -4,6 +4,7 @@ import SwiftData
 enum TemplateLibraryError: Error, LocalizedError, Equatable {
     case emptyName
     case duplicateName(String)
+    case templateUsedByOpenSession
 
     var errorDescription: String? {
         switch self {
@@ -11,6 +12,8 @@ enum TemplateLibraryError: Error, LocalizedError, Equatable {
             "模板名称不能为空"
         case .duplicateName(let name):
             "模板名称已存在：\(name)"
+        case .templateUsedByOpenSession:
+            "进行中的训练正在使用该模板"
         }
     }
 }
@@ -57,6 +60,59 @@ enum TemplateLibrary {
         try context.save()
     }
 
+    static func removeExercise(
+        _ exercise: Exercise,
+        from template: Template,
+        in context: ModelContext
+    ) throws {
+        try ensureTemplateIsNotUsedByOpenSession(template, in: context)
+
+        let templateExercises = try context.fetch(FetchDescriptor<TemplateExercise>())
+
+        for link in templateExercises where link.template === template && link.exercise === exercise {
+            context.delete(link)
+        }
+
+        template.exercises.removeAll { $0 === exercise }
+        reindexExerciseLinks(
+            templateExercises.filter { $0.template === template && $0.exercise !== exercise }
+        )
+
+        try context.save()
+    }
+
+    static func persistExerciseOrder(
+        _ orderedExercises: [Exercise],
+        for template: Template,
+        in context: ModelContext
+    ) throws {
+        try ensureTemplateIsNotUsedByOpenSession(template, in: context)
+
+        let templateExercises = try context.fetch(FetchDescriptor<TemplateExercise>())
+        var links = templateExercises.filter { $0.template === template }
+
+        for (index, exercise) in orderedExercises.enumerated()
+            where links.contains(where: { $0.exercise === exercise }) == false {
+            let link = TemplateExercise(
+                template: template,
+                exercise: exercise,
+                orderIndex: index
+            )
+
+            context.insert(link)
+            links.append(link)
+        }
+
+        for (index, exercise) in orderedExercises.enumerated() {
+            links
+                .filter { $0.exercise === exercise }
+                .forEach { $0.orderIndex = index }
+        }
+
+        template.exercises = orderedExercises
+        try context.save()
+    }
+
     private static func validatedName(
         _ name: String,
         excluding editedTemplate: Template?,
@@ -78,5 +134,30 @@ enum TemplateLibrary {
         }
 
         return normalizedName
+    }
+
+    private static func ensureTemplateIsNotUsedByOpenSession(
+        _ template: Template,
+        in context: ModelContext
+    ) throws {
+        let sessions = try context.fetch(FetchDescriptor<WorkoutSession>())
+
+        if sessions.contains(where: { $0.endedAt == nil && $0.template === template }) {
+            throw TemplateLibraryError.templateUsedByOpenSession
+        }
+    }
+
+    private static func reindexExerciseLinks(_ links: [TemplateExercise]) {
+        for (index, link) in links.sorted(by: templateExerciseSort).enumerated() {
+            link.orderIndex = index
+        }
+    }
+
+    private static func templateExerciseSort(_ lhs: TemplateExercise, _ rhs: TemplateExercise) -> Bool {
+        if lhs.orderIndex != rhs.orderIndex {
+            return lhs.orderIndex < rhs.orderIndex
+        }
+
+        return (lhs.exercise?.name ?? "") < (rhs.exercise?.name ?? "")
     }
 }

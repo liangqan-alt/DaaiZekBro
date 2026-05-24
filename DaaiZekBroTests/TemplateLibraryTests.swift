@@ -129,6 +129,101 @@ struct TemplateLibraryTests {
         #expect(set.setIndex == 1)
     }
 
+    @Test func removeExerciseFromTemplateDeletesLinkUpdatesLegacyExercisesAndReindexes() throws {
+        let context = try makeInMemoryContext()
+        try SeedData.writeAndDedup(in: context)
+
+        let template = try template(named: "Push A", in: context)
+        let exercise = try exercise(named: "上斜推胸机", in: context)
+
+        try TemplateLibrary.removeExercise(exercise, from: template, in: context)
+
+        let remainingLinks = try templateExerciseLinks(for: template, in: context)
+        let remainingNames = remainingLinks.map { $0.exercise?.name ?? "" }
+
+        #expect(remainingNames == [
+            "固定器械卧推",
+            "固定器械推肩",
+            "坐姿夹胸",
+            "哑铃侧平举",
+            "坐姿肱三头伸展机",
+        ])
+        #expect(remainingLinks.map(\.orderIndex) == Array(0..<remainingLinks.count))
+        #expect(template.exercises.contains { $0 === exercise } == false)
+    }
+
+    @Test func removeExerciseFromTemplateRejectsOpenSessionAndLeavesOrderUnchanged() throws {
+        let context = try makeInMemoryContext()
+        try SeedData.writeAndDedup(in: context)
+
+        let template = try template(named: "Push A", in: context)
+        let exercise = try exercise(named: "上斜推胸机", in: context)
+        let originalNames = try templateExerciseLinks(for: template, in: context).map { $0.exercise?.name ?? "" }
+        let originalOrderIndexes = try templateExerciseLinks(for: template, in: context).map(\.orderIndex)
+
+        _ = try WorkoutSessionLifecycle.createSession(for: template, in: context)
+
+        var didBlockOpenSession = false
+
+        do {
+            try TemplateLibrary.removeExercise(exercise, from: template, in: context)
+        } catch TemplateLibraryError.templateUsedByOpenSession {
+            didBlockOpenSession = true
+        }
+
+        #expect(didBlockOpenSession)
+        #expect(try templateExerciseLinks(for: template, in: context).map { $0.exercise?.name ?? "" } == originalNames)
+        #expect(try templateExerciseLinks(for: template, in: context).map(\.orderIndex) == originalOrderIndexes)
+        #expect(template.exercises.contains { $0 === exercise })
+    }
+
+    @Test func persistExerciseOrderWritesContiguousOrderIndexes() throws {
+        let context = try makeInMemoryContext()
+        try SeedData.writeAndDedup(in: context)
+
+        let template = try template(named: "Push A", in: context)
+        var exercises = try templateExerciseLinks(for: template, in: context).compactMap(\.exercise)
+        let movedExercise = exercises.removeFirst()
+        exercises.insert(movedExercise, at: 3)
+
+        try TemplateLibrary.persistExerciseOrder(exercises, for: template, in: context)
+
+        let persistedLinks = try templateExerciseLinks(for: template, in: context)
+
+        #expect(persistedLinks.map { $0.exercise?.name ?? "" } == exercises.map(\.name))
+        #expect(persistedLinks.map(\.orderIndex) == Array(0..<persistedLinks.count))
+        #expect(Set(template.exercises.map(\.name)) == Set(exercises.map(\.name)))
+    }
+
+    @Test func persistExerciseOrderRejectsOpenSessionAndLeavesOrderUnchanged() throws {
+        let context = try makeInMemoryContext()
+        try SeedData.writeAndDedup(in: context)
+
+        let template = try template(named: "Push A", in: context)
+        let originalExercises = try templateExerciseLinks(for: template, in: context).compactMap(\.exercise)
+        let originalOrderIndexes = try templateExerciseLinks(for: template, in: context).map(\.orderIndex)
+        var reorderedExercises = originalExercises
+        let movedExercise = reorderedExercises.removeFirst()
+        reorderedExercises.append(movedExercise)
+
+        _ = try WorkoutSessionLifecycle.createSession(for: template, in: context)
+
+        var didBlockOpenSession = false
+
+        do {
+            try TemplateLibrary.persistExerciseOrder(reorderedExercises, for: template, in: context)
+        } catch TemplateLibraryError.templateUsedByOpenSession {
+            didBlockOpenSession = true
+        }
+
+        let persistedLinks = try templateExerciseLinks(for: template, in: context)
+
+        #expect(didBlockOpenSession)
+        #expect(persistedLinks.compactMap(\.exercise).map(\.name) == originalExercises.map(\.name))
+        #expect(persistedLinks.map(\.orderIndex) == originalOrderIndexes)
+        #expect(Set(template.exercises.map(\.name)) == Set(originalExercises.map(\.name)))
+    }
+
     @Test func templateNameSavePolicyRejectsBlankAndMissingEditedTemplate() {
         #expect(TemplateNameEditorSavePolicy.canSave(
             isNewTemplate: true,
@@ -179,6 +274,14 @@ struct TemplateLibraryTests {
         try context.fetch(FetchDescriptor<TemplateExercise>())
     }
 
+    private func exercise(named name: String, in context: ModelContext) throws -> Exercise {
+        guard let exercise = try fetchExercises(in: context).first(where: { $0.name == name }) else {
+            throw TemplateLibraryTestError.missingExercise(name)
+        }
+
+        return exercise
+    }
+
     private func template(named name: String, in context: ModelContext) throws -> Template {
         guard let template = try fetchTemplates(in: context).first(where: { $0.name == name }) else {
             throw TemplateLibraryTestError.missingTemplate(name)
@@ -221,5 +324,6 @@ private extension Array where Element == Template {
 }
 
 private enum TemplateLibraryTestError: Error {
+    case missingExercise(String)
     case missingTemplate(String)
 }

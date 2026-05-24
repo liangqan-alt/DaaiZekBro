@@ -178,10 +178,15 @@ struct TemplateListView: View {
     private var editingContent: some View {
         List {
             ForEach(orderedTemplates) { template in
-                TemplateEditRow(
-                    name: template.name,
-                    exerciseCount: exerciseCount(for: template)
-                )
+                Button {
+                    path.append(.templateEdit(templateID: template.persistentModelID))
+                } label: {
+                    TemplateEditRow(
+                        name: template.name,
+                        exerciseCount: exerciseCount(for: template)
+                    )
+                }
+                .buttonStyle(.plain)
                 .accessibilityIdentifier("template-edit-\(template.name)")
             }
             .onMove(perform: moveTemplates)
