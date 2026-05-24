@@ -113,6 +113,31 @@ enum TemplateLibrary {
         try context.save()
     }
 
+    @discardableResult
+    static func appendExercises(
+        _ exercises: [Exercise],
+        to template: Template,
+        in context: ModelContext
+    ) throws -> [Exercise] {
+        try ensureTemplateIsNotUsedByOpenSession(template, in: context)
+
+        var orderedExercises = WorkoutSessionLifecycle.orderedExercises(for: template)
+        var appendedExercises: [Exercise] = []
+
+        for exercise in exercises where orderedExercises.containsSameExercise(as: exercise) == false {
+            orderedExercises.append(exercise)
+            appendedExercises.append(exercise)
+        }
+
+        guard appendedExercises.isEmpty == false else {
+            return []
+        }
+
+        try persistExerciseOrder(orderedExercises, for: template, in: context)
+
+        return appendedExercises
+    }
+
     private static func validatedName(
         _ name: String,
         excluding editedTemplate: Template?,
@@ -159,5 +184,13 @@ enum TemplateLibrary {
         }
 
         return (lhs.exercise?.name ?? "") < (rhs.exercise?.name ?? "")
+    }
+}
+
+private extension Array where Element == Exercise {
+    func containsSameExercise(as exercise: Exercise) -> Bool {
+        contains { existingExercise in
+            existingExercise === exercise || existingExercise.persistentModelID == exercise.persistentModelID
+        }
     }
 }

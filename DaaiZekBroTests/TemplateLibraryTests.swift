@@ -224,6 +224,130 @@ struct TemplateLibraryTests {
         #expect(Set(template.exercises.map(\.name)) == Set(originalExercises.map(\.name)))
     }
 
+    @Test func addExercisesAppendsOnlyNewExercisesAndPreservesOrder() throws {
+        let context = try makeInMemoryContext()
+        try SeedData.writeAndDedup(in: context)
+
+        let template = try template(named: "Push A", in: context)
+        let existingExercise = try exercise(named: "固定器械卧推", in: context)
+        let hackSquat = try ExerciseLibrary.create(
+            name: "Hack Squat",
+            defaultRestSeconds: 120,
+            isUnilateral: false,
+            in: context
+        )
+        let calfRaise = try ExerciseLibrary.create(
+            name: "Calf Raise",
+            defaultRestSeconds: 60,
+            isUnilateral: false,
+            in: context
+        )
+        let originalNames = try templateExerciseLinks(for: template, in: context).map { $0.exercise?.name ?? "" }
+
+        let appendedExercises = try TemplateLibrary.appendExercises(
+            [existingExercise, hackSquat, calfRaise],
+            to: template,
+            in: context
+        )
+        let persistedLinks = try templateExerciseLinks(for: template, in: context)
+
+        #expect(appendedExercises.map(\.name) == ["Hack Squat", "Calf Raise"])
+        #expect(persistedLinks.map { $0.exercise?.name ?? "" } == originalNames + ["Hack Squat", "Calf Raise"])
+        #expect(persistedLinks.map(\.orderIndex) == Array(0..<persistedLinks.count))
+        #expect(WorkoutSessionLifecycle.orderedExercises(for: template).map(\.name) == originalNames + ["Hack Squat", "Calf Raise"])
+    }
+
+    @Test func addExercisesToEmptyTemplateStartsOrderAtZero() throws {
+        let context = try makeInMemoryContext()
+
+        let template = try TemplateLibrary.create(name: "Custom Legs", in: context)
+        let legPress = try ExerciseLibrary.create(
+            name: "Leg Press",
+            defaultRestSeconds: 150,
+            isUnilateral: false,
+            in: context
+        )
+        let splitSquat = try ExerciseLibrary.create(
+            name: "Split Squat",
+            defaultRestSeconds: 90,
+            isUnilateral: true,
+            in: context
+        )
+
+        let appendedExercises = try TemplateLibrary.appendExercises(
+            [legPress, splitSquat],
+            to: template,
+            in: context
+        )
+        let persistedLinks = try templateExerciseLinks(for: template, in: context)
+
+        #expect(appendedExercises.map(\.name) == ["Leg Press", "Split Squat"])
+        #expect(persistedLinks.map { $0.exercise?.name ?? "" } == ["Leg Press", "Split Squat"])
+        #expect(persistedLinks.map(\.orderIndex) == [0, 1])
+        #expect(Set(template.exercises.map(\.name)) == Set(["Leg Press", "Split Squat"]))
+    }
+
+    @Test func addExercisesDedupsRepeatedSelection() throws {
+        let context = try makeInMemoryContext()
+
+        let template = try TemplateLibrary.create(name: "Custom Push", in: context)
+        let benchPress = try ExerciseLibrary.create(
+            name: "Bench Press",
+            defaultRestSeconds: 120,
+            isUnilateral: false,
+            in: context
+        )
+        let shoulderPress = try ExerciseLibrary.create(
+            name: "Shoulder Press",
+            defaultRestSeconds: 90,
+            isUnilateral: false,
+            in: context
+        )
+
+        let appendedExercises = try TemplateLibrary.appendExercises(
+            [benchPress, benchPress, shoulderPress, benchPress],
+            to: template,
+            in: context
+        )
+        let persistedLinks = try templateExerciseLinks(for: template, in: context)
+
+        #expect(appendedExercises.map(\.name) == ["Bench Press", "Shoulder Press"])
+        #expect(persistedLinks.map { $0.exercise?.name ?? "" } == ["Bench Press", "Shoulder Press"])
+        #expect(persistedLinks.map(\.orderIndex) == [0, 1])
+    }
+
+    @Test func addExercisesRejectsOpenSessionAndLeavesTemplateUnchanged() throws {
+        let context = try makeInMemoryContext()
+        try SeedData.writeAndDedup(in: context)
+
+        let template = try template(named: "Push A", in: context)
+        let newExercise = try ExerciseLibrary.create(
+            name: "Cable Press",
+            defaultRestSeconds: 90,
+            isUnilateral: false,
+            in: context
+        )
+        let originalNames = try templateExerciseLinks(for: template, in: context).map { $0.exercise?.name ?? "" }
+        let originalOrderIndexes = try templateExerciseLinks(for: template, in: context).map(\.orderIndex)
+
+        _ = try WorkoutSessionLifecycle.createSession(for: template, in: context)
+
+        var didBlockOpenSession = false
+
+        do {
+            _ = try TemplateLibrary.appendExercises([newExercise], to: template, in: context)
+        } catch TemplateLibraryError.templateUsedByOpenSession {
+            didBlockOpenSession = true
+        }
+
+        let persistedLinks = try templateExerciseLinks(for: template, in: context)
+
+        #expect(didBlockOpenSession)
+        #expect(persistedLinks.map { $0.exercise?.name ?? "" } == originalNames)
+        #expect(persistedLinks.map(\.orderIndex) == originalOrderIndexes)
+        #expect(WorkoutSessionLifecycle.orderedExercises(for: template).map(\.name) == originalNames)
+    }
+
     @Test func templateNameSavePolicyRejectsBlankAndMissingEditedTemplate() {
         #expect(TemplateNameEditorSavePolicy.canSave(
             isNewTemplate: true,
