@@ -40,6 +40,7 @@ enum WorkoutSessionLifecycle {
         let session = WorkoutSession(
             template: template,
             templateNameSnapshot: template.name,
+            templateStableIDSnapshot: template.stableID,
             startedAt: startedAt,
             timezoneIdentifier: timeZone.identifier
         )

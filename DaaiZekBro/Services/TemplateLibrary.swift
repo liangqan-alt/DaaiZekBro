@@ -42,10 +42,41 @@ enum TemplateLibrary {
     }
 
     static func delete(_ template: Template, in context: ModelContext) throws {
+        if template.stableID.isEmpty {
+            template.stableID = UUID().uuidString
+        }
+
         let templateExercises = try context.fetch(FetchDescriptor<TemplateExercise>())
+        let sessions = try context.fetch(FetchDescriptor<WorkoutSession>())
+        let cycleSlots = try context.fetch(FetchDescriptor<TrainingCycleSlot>())
+        let dayOverrides = try context.fetch(FetchDescriptor<TrainingDayOverride>())
 
         for link in templateExercises where link.template === template {
             context.delete(link)
+        }
+
+        for session in sessions where session.template === template {
+            if session.templateStableIDSnapshot.isEmpty {
+                session.templateStableIDSnapshot = template.stableID
+            }
+
+            session.template = nil
+        }
+
+        for slot in cycleSlots where slot.template === template {
+            if slot.templateStableID.isEmpty {
+                slot.templateStableID = template.stableID
+            }
+
+            slot.template = nil
+        }
+
+        for dayOverride in dayOverrides where dayOverride.template === template {
+            if dayOverride.templateStableID.isEmpty {
+                dayOverride.templateStableID = template.stableID
+            }
+
+            dayOverride.template = nil
         }
 
         context.delete(template)

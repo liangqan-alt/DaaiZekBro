@@ -53,6 +53,11 @@ enum WeightDisplay {
     }
 }
 
+enum TrainingPlanEntryKind: String, Codable {
+    case workout
+    case rest
+}
+
 @Model
 final class Exercise {
     var name: String = ""
@@ -71,15 +76,25 @@ final class Exercise {
 final class Template {
     var name: String = ""
     var sortIndex: Int = 0
+    var stableID: String = ""
+    var colorHex: String?
     @Relationship(inverse: \Exercise.templates)
     var exercises: [Exercise] = []
     @Relationship(deleteRule: .cascade, inverse: \TemplateExercise.template)
     var templateExercises: [TemplateExercise] = []
 
-    init(name: String = "", exercises: [Exercise] = [], sortIndex: Int = 0) {
+    init(
+        name: String = "",
+        exercises: [Exercise] = [],
+        sortIndex: Int = 0,
+        stableID: String = UUID().uuidString,
+        colorHex: String? = nil
+    ) {
         self.name = name
         self.exercises = exercises
         self.sortIndex = sortIndex
+        self.stableID = stableID
+        self.colorHex = colorHex
     }
 }
 
@@ -101,6 +116,7 @@ final class WorkoutSession {
     var id: UUID = UUID()
     var template: Template?
     var templateNameSnapshot: String = ""
+    var templateStableIDSnapshot: String = ""
     var startedAt: Date = Date()
     var endedAt: Date?
     var timezoneIdentifier: String = TimeZone.current.identifier
@@ -111,6 +127,7 @@ final class WorkoutSession {
         id: UUID = UUID(),
         template: Template? = nil,
         templateNameSnapshot: String = "",
+        templateStableIDSnapshot: String = "",
         startedAt: Date = Date(),
         endedAt: Date? = nil,
         timezoneIdentifier: String = TimeZone.current.identifier
@@ -118,9 +135,141 @@ final class WorkoutSession {
         self.id = id
         self.template = template
         self.templateNameSnapshot = templateNameSnapshot
+        self.templateStableIDSnapshot = templateStableIDSnapshot
         self.startedAt = startedAt
         self.endedAt = endedAt
         self.timezoneIdentifier = timezoneIdentifier
+    }
+}
+
+@Model
+final class TrainingCycle {
+    var id: UUID = UUID()
+    var startDate: Date = Date()
+    var timezoneIdentifier: String = TimeZone.current.identifier
+    @Relationship(deleteRule: .cascade, inverse: \TrainingCycleSlot.cycle)
+    var slots: [TrainingCycleSlot] = []
+    @Relationship(deleteRule: .cascade, inverse: \TrainingDayOverride.cycle)
+    var dayOverrides: [TrainingDayOverride] = []
+
+    init(
+        id: UUID = UUID(),
+        startDate: Date = Date(),
+        timezoneIdentifier: String = TimeZone.current.identifier,
+        slots: [TrainingCycleSlot] = [],
+        dayOverrides: [TrainingDayOverride] = []
+    ) {
+        self.id = id
+        self.startDate = startDate
+        self.timezoneIdentifier = timezoneIdentifier
+        self.slots = slots
+        self.dayOverrides = dayOverrides
+    }
+}
+
+@Model
+final class TrainingCycleSlot {
+    var cycle: TrainingCycle?
+    var orderIndex: Int = 0
+    var kind: TrainingPlanEntryKind = TrainingPlanEntryKind.rest
+    @Relationship(deleteRule: .nullify)
+    var template: Template?
+    var templateStableID: String = ""
+
+    init(
+        cycle: TrainingCycle? = nil,
+        orderIndex: Int = 0,
+        kind: TrainingPlanEntryKind = .rest,
+        template: Template? = nil,
+        templateStableID: String? = nil
+    ) {
+        self.cycle = cycle
+        self.orderIndex = orderIndex
+        self.kind = kind
+        self.template = template
+        self.templateStableID = templateStableID ?? (kind == .workout ? template?.stableID ?? "" : "")
+    }
+
+    var isRestDay: Bool {
+        kind == .rest
+    }
+
+    var isInvalidPlan: Bool {
+        kind == .workout && template == nil && templateStableID.isEmpty == false
+    }
+}
+
+@Model
+final class TrainingDayOverride {
+    var cycle: TrainingCycle?
+    var localDateKey: String = ""
+    @Attribute(.unique)
+    var cycleDateKey: String = ""
+    var kind: TrainingPlanEntryKind = TrainingPlanEntryKind.rest
+    @Relationship(deleteRule: .nullify)
+    var template: Template?
+    var templateStableID: String = ""
+
+    init(
+        cycle: TrainingCycle? = nil,
+        localDateKey: String = "",
+        kind: TrainingPlanEntryKind = .rest,
+        template: Template? = nil,
+        templateStableID: String? = nil
+    ) {
+        self.cycle = cycle
+        self.localDateKey = localDateKey
+        self.cycleDateKey = cycle.map { Self.cycleDateKey(cycleID: $0.id, localDateKey: localDateKey) } ?? localDateKey
+        self.kind = kind
+        self.template = template
+        self.templateStableID = templateStableID ?? (kind == .workout ? template?.stableID ?? "" : "")
+    }
+
+    static func cycleDateKey(cycleID: UUID, localDateKey: String) -> String {
+        "\(cycleID.uuidString)|\(localDateKey)"
+    }
+
+    var isRestDay: Bool {
+        kind == .rest
+    }
+
+    var isInvalidPlan: Bool {
+        kind == .workout && template == nil && templateStableID.isEmpty == false
+    }
+
+    @MainActor
+    @discardableResult
+    static func upsert(
+        cycle: TrainingCycle,
+        localDateKey: String,
+        kind: TrainingPlanEntryKind,
+        template: Template?,
+        in context: ModelContext
+    ) throws -> TrainingDayOverride {
+        let cycleDateKey = TrainingDayOverride.cycleDateKey(cycleID: cycle.id, localDateKey: localDateKey)
+        let existingOverrides = try context.fetch(FetchDescriptor<TrainingDayOverride>())
+
+        if let existingOverride = existingOverrides.first(where: { $0.cycleDateKey == cycleDateKey }) {
+            existingOverride.cycle = cycle
+            existingOverride.localDateKey = localDateKey
+            existingOverride.kind = kind
+            existingOverride.template = template
+            existingOverride.templateStableID = kind == .workout ? template?.stableID ?? existingOverride.templateStableID : ""
+            try context.save()
+            return existingOverride
+        }
+
+        let dayOverride = TrainingDayOverride(
+            cycle: cycle,
+            localDateKey: localDateKey,
+            kind: kind,
+            template: template
+        )
+
+        context.insert(dayOverride)
+        try context.save()
+
+        return dayOverride
     }
 }
 

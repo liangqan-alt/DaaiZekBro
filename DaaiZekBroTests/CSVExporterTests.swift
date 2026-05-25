@@ -674,6 +674,9 @@ struct CSVExporterTests {
             Template.self,
             TemplateExercise.self,
             WorkoutSession.self,
+            TrainingCycle.self,
+            TrainingCycleSlot.self,
+            TrainingDayOverride.self,
             WorkoutSessionExerciseSnapshot.self,
             WorkoutSet.self,
         ])

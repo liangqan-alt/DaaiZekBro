@@ -2,6 +2,10 @@ import Foundation
 import SwiftData
 
 enum SeedData {
+    static let pushTemplateColorHex = "#D86838"
+    static let pullTemplateColorHex = "#4E7BA6"
+    static let legsTemplateColorHex = "#5C8A3A"
+
     static let templateExerciseNames: [(name: String, exerciseNames: [String])] = [
         ("Push A", [
             "固定器械卧推",
@@ -81,7 +85,8 @@ enum SeedData {
             Template(
                 name: template.name,
                 exercises: template.exerciseNames.compactMap { exercisesByName[$0] },
-                sortIndex: index
+                sortIndex: index,
+                colorHex: defaultColorHex(forSeedTemplateName: template.name)
             )
         }
     }
@@ -98,6 +103,9 @@ enum SeedData {
         try dedupTemplates(in: context)
         try backfillTemplateSortIndexes(in: context)
         try backfillTemplateExercises(in: context)
+        try backfillTemplateStableIDs(in: context)
+        try backfillSeedTemplateColors(in: context)
+        try backfillSessionTemplateStableIDs(in: context)
         try context.save()
     }
 
@@ -114,8 +122,17 @@ enum SeedData {
         let templates = try context.fetch(FetchDescriptor<Template>())
         let sessions = try context.fetch(FetchDescriptor<WorkoutSession>())
         let sets = try context.fetch(FetchDescriptor<WorkoutSet>())
+        let cycles = try context.fetch(FetchDescriptor<TrainingCycle>())
+        let slots = try context.fetch(FetchDescriptor<TrainingCycleSlot>())
+        let dayOverrides = try context.fetch(FetchDescriptor<TrainingDayOverride>())
 
-        return exercises.isEmpty && templates.isEmpty && sessions.isEmpty && sets.isEmpty
+        return exercises.isEmpty
+            && templates.isEmpty
+            && sessions.isEmpty
+            && sets.isEmpty
+            && cycles.isEmpty
+            && slots.isEmpty
+            && dayOverrides.isEmpty
     }
 
     @MainActor
@@ -132,7 +149,8 @@ enum SeedData {
             let template = Template(
                 name: templateDefinition.name,
                 exercises: seedExercises,
-                sortIndex: templateIndex
+                sortIndex: templateIndex,
+                colorHex: defaultColorHex(forSeedTemplateName: templateDefinition.name)
             )
 
             context.insert(template)
@@ -185,18 +203,42 @@ enum SeedData {
         let groupedTemplates = Dictionary(grouping: allTemplates, by: \.name)
         let sessions = try context.fetch(FetchDescriptor<WorkoutSession>())
         let templateExercises = try context.fetch(FetchDescriptor<TemplateExercise>())
+        let cycleSlots = try context.fetch(FetchDescriptor<TrainingCycleSlot>())
+        let dayOverrides = try context.fetch(FetchDescriptor<TrainingDayOverride>())
 
         for (_, duplicates) in groupedTemplates {
             guard let survivor = duplicates.first else { continue }
             var survivorHasTemplateExercises = templateExercises.contains { $0.template === survivor }
 
             for duplicate in duplicates.dropFirst() {
+                if survivor.stableID.isEmpty, duplicate.stableID.isEmpty == false {
+                    survivor.stableID = duplicate.stableID
+                }
+
+                if survivor.colorHex == nil {
+                    survivor.colorHex = duplicate.colorHex
+                }
+
                 if survivor.exercises.isEmpty {
                     survivor.exercises = duplicate.exercises
                 }
 
                 for session in sessions where session.template === duplicate {
                     session.template = survivor
+                }
+
+                for slot in cycleSlots where slot.template === duplicate {
+                    slot.template = survivor
+                    if survivor.stableID.isEmpty == false {
+                        slot.templateStableID = survivor.stableID
+                    }
+                }
+
+                for dayOverride in dayOverrides where dayOverride.template === duplicate {
+                    dayOverride.template = survivor
+                    if survivor.stableID.isEmpty == false {
+                        dayOverride.templateStableID = survivor.stableID
+                    }
                 }
 
                 for templateExercise in templateExercises where templateExercise.template === duplicate {
@@ -210,6 +252,49 @@ enum SeedData {
                 survivorHasTemplateExercises = true
                 context.delete(duplicate)
             }
+        }
+    }
+
+    @MainActor
+    private static func backfillTemplateStableIDs(in context: ModelContext) throws {
+        let templates = try context.fetch(FetchDescriptor<Template>())
+        var usedStableIDs = Set(templates.map(\.stableID).filter { $0.isEmpty == false })
+
+        for template in templates where template.stableID.isEmpty {
+            var stableID = UUID().uuidString
+
+            while usedStableIDs.contains(stableID) {
+                stableID = UUID().uuidString
+            }
+
+            template.stableID = stableID
+            usedStableIDs.insert(stableID)
+        }
+    }
+
+    @MainActor
+    private static func backfillSeedTemplateColors(in context: ModelContext) throws {
+        let templates = try context.fetch(FetchDescriptor<Template>())
+
+        for template in templates where template.colorHex == nil {
+            guard let colorHex = defaultColorHex(forSeedTemplateName: template.name) else {
+                continue
+            }
+
+            template.colorHex = colorHex
+        }
+    }
+
+    @MainActor
+    private static func backfillSessionTemplateStableIDs(in context: ModelContext) throws {
+        let sessions = try context.fetch(FetchDescriptor<WorkoutSession>())
+
+        for session in sessions where session.templateStableIDSnapshot.isEmpty {
+            guard let templateStableID = session.template?.stableID, templateStableID.isEmpty == false else {
+                continue
+            }
+
+            session.templateStableIDSnapshot = templateStableID
         }
     }
 
@@ -310,5 +395,25 @@ enum SeedData {
         }
 
         return (lhs.exercise?.name ?? "") < (rhs.exercise?.name ?? "")
+    }
+
+    private static func defaultColorHex(forSeedTemplateName name: String) -> String? {
+        guard templateExerciseNames.contains(where: { $0.name == name }) else {
+            return nil
+        }
+
+        if name.hasPrefix("Push") {
+            return pushTemplateColorHex
+        }
+
+        if name.hasPrefix("Pull") {
+            return pullTemplateColorHex
+        }
+
+        if name.hasPrefix("Legs") {
+            return legsTemplateColorHex
+        }
+
+        return nil
     }
 }
