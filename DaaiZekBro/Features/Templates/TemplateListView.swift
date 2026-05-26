@@ -6,6 +6,9 @@ struct TemplateListView: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var templates: [Template]
     @Query private var sessions: [WorkoutSession]
+    @Query private var cycles: [TrainingCycle]
+    @Query private var slots: [TrainingCycleSlot]
+    @Query private var overrides: [TrainingDayOverride]
     @State private var pendingTemplateName: String?
     @State private var errorMessage: String?
     @State private var isEditingTemplates = false
@@ -144,6 +147,23 @@ struct TemplateListView: View {
             VStack(alignment: .leading, spacing: DZMetric.sectionSpacing) {
                 if let currentOpenSession {
                     continueButton(for: currentOpenSession)
+                } else {
+                    switch todayPlanCardResult {
+                    case .success(let card?):
+                        TodayPlanCardView(
+                            card: card,
+                            onOpenSchedule: openTrainingSchedule,
+                            onStart: {
+                                guard let template = card.startTemplate else { return }
+
+                                startOrResolveConflict(for: template)
+                            }
+                        )
+                    case .success(nil):
+                        EmptyView()
+                    case .failure(let error):
+                        TodayPlanErrorCard(errorMessage: error.localizedDescription)
+                    }
                 }
 
                 LazyVGrid(columns: columns, spacing: 10) {
@@ -218,6 +238,30 @@ struct TemplateListView: View {
             .filter { $0.endedAt == nil }
             .sorted { $0.startedAt > $1.startedAt }
             .first
+    }
+
+    private var todayPlanCardResult: Result<TrainingSchedulePresentation.TodayPlanCard?, Error> {
+        _ = scheduleDataVersion
+
+        return Result {
+            try TrainingSchedulePresentation.todayCard(
+                now: AppLaunchConfiguration.now(),
+                in: modelContext
+            )
+        }
+    }
+
+    private var scheduleDataVersion: Int {
+        cycles.count
+            + slots.count
+            + overrides.count
+            + sessions.count
+            + templates.reduce(0) { partialResult, template in
+                partialResult
+                    + template.name.count
+                    + template.stableID.count
+                    + (template.colorHex?.count ?? 0)
+            }
     }
 
     private var pendingTemplate: Template? {
@@ -297,6 +341,10 @@ struct TemplateListView: View {
         isShowingDeleteWarning = false
     }
 
+    private func openTrainingSchedule() {
+        path.append(TodayPlanCardRouteIntent.body)
+    }
+
     private func openSessionUses(_ template: Template) -> Bool {
         sessions.contains { session in
             session.endedAt == nil && session.template === template
@@ -337,14 +385,19 @@ struct TemplateListView: View {
             .dzShadowSM()
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier("continue-workout-card")
     }
 
     private func startOrResolveConflict(for template: Template) {
         do {
-            if try WorkoutSessionLifecycle.currentOpenSession(in: modelContext) == nil {
-                let session = try WorkoutSessionLifecycle.createSession(for: template, in: modelContext)
+            switch try WorkoutStartFlow.startOrConflict(
+                for: template,
+                in: modelContext,
+                startedAt: AppLaunchConfiguration.now()
+            ) {
+            case .started(let session):
                 path.append(.currentWorkout(sessionID: session.id))
-            } else {
+            case .conflict:
                 pendingTemplateName = template.name
             }
         } catch {
@@ -378,7 +431,11 @@ struct TemplateListView: View {
                 UserNotificationRestScheduler.cancelPendingRestCompletionNotification()
             }
 
-            let newSession = try WorkoutSessionLifecycle.createSession(for: template, in: modelContext)
+            let newSession = try WorkoutSessionLifecycle.createSession(
+                for: template,
+                in: modelContext,
+                startedAt: AppLaunchConfiguration.now()
+            )
             pendingTemplateName = nil
             path.append(.currentWorkout(sessionID: newSession.id))
         } catch {
@@ -398,7 +455,11 @@ struct TemplateListView: View {
                 UserNotificationRestScheduler.cancelPendingRestCompletionNotification()
             }
 
-            let newSession = try WorkoutSessionLifecycle.createSession(for: template, in: modelContext)
+            let newSession = try WorkoutSessionLifecycle.createSession(
+                for: template,
+                in: modelContext,
+                startedAt: AppLaunchConfiguration.now()
+            )
             pendingTemplateName = nil
             path.append(.currentWorkout(sessionID: newSession.id))
         } catch {
@@ -420,6 +481,150 @@ struct TemplateListView: View {
         let seconds = elapsedSeconds % 60
 
         return String(format: "%02d:%02d", minutes, seconds)
+    }
+}
+
+enum TodayPlanCardRouteIntent {
+    static let body = AppRoute.trainingSchedule
+}
+
+private struct TodayPlanCardView: View {
+    let card: TrainingSchedulePresentation.TodayPlanCard
+    let onOpenSchedule: () -> Void
+    let onStart: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DZMetric.space3) {
+            Button(action: onOpenSchedule) {
+                VStack(alignment: .leading, spacing: DZMetric.space3) {
+                    HStack(spacing: DZMetric.space2) {
+                        Circle()
+                            .fill(DZColor.templateColor(for: card.colorStyle))
+                            .frame(width: 10, height: 10)
+                            .opacity(card.colorStyle == .rest ? 0.55 : 1)
+
+                        Text(card.colorStyle == .rest ? "今日" : "今日计划")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(DZColor.bronze600)
+
+                        Spacer(minLength: DZMetric.space2)
+
+                        if let statusText = card.statusText {
+                            TodayPlanStatusPill(text: statusText, colorStyle: card.colorStyle)
+                        }
+
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(DZColor.fgFaint)
+                    }
+
+                    RoundedRectangle(cornerRadius: 2, style: .continuous)
+                        .fill(DZColor.templateColor(for: card.colorStyle))
+                        .frame(height: 4)
+                        .opacity(card.colorStyle == .rest ? 0.45 : 1)
+
+                    Text(card.titleText)
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(card.colorStyle == .invalid ? DZColor.ink700 : DZColor.ink900)
+                        .strikethrough(card.colorStyle == .invalid, color: DZColor.templateInvalid)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+
+                    if let lastCompletionText = card.lastCompletionText {
+                        Text(lastCompletionText)
+                            .font(.caption)
+                            .foregroundStyle(DZColor.ink700)
+                    }
+
+                    if let hintText = card.hintText {
+                        Text(hintText)
+                            .font(.caption)
+                            .foregroundStyle(DZColor.ink700)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(DZColor.cream200)
+                            .clipShape(RoundedRectangle(cornerRadius: DZMetric.radiusSM, style: .continuous))
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("今日计划卡")
+            .accessibilityIdentifier("today-plan-card-body")
+            .buttonStyle(DZPressablePlainButtonStyle())
+
+            if card.showsStartButton {
+                Button("开始训练", action: onStart)
+                    .accessibilityIdentifier("today-plan-start-button")
+                    .buttonStyle(DZPrimaryButtonStyle())
+            }
+        }
+        .padding(14)
+        .dzCardStyle()
+        .accessibilityIdentifier("today-plan-card")
+    }
+}
+
+private struct TodayPlanStatusPill: View {
+    let text: String
+    let colorStyle: TrainingSchedulePresentation.ColorStyle
+
+    private var foreground: Color {
+        if text == "✓ 已完成" {
+            return DZColor.pr600
+        }
+
+        if colorStyle == .invalid {
+            return DZColor.ink800
+        }
+
+        return DZColor.bronze700
+    }
+
+    private var background: Color {
+        if text == "✓ 已完成" {
+            return DZColor.pr100
+        }
+
+        if colorStyle == .invalid {
+            return DZColor.invalidTint
+        }
+
+        return DZColor.statusNeutral
+    }
+
+    var body: some View {
+        Text(text)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(foreground)
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 5)
+            .background(background)
+            .clipShape(Capsule())
+            .overlay {
+                Capsule()
+                    .stroke(
+                        colorStyle == .invalid ? DZColor.templateInvalid.opacity(0.65) : Color.clear,
+                        style: StrokeStyle(lineWidth: 1, dash: [4, 3])
+                    )
+            }
+    }
+}
+
+private struct TodayPlanErrorCard: View {
+    let errorMessage: String
+
+    var body: some View {
+        Text("今日计划读取失败：\(errorMessage)")
+            .font(.caption)
+            .foregroundStyle(DZColor.ink700)
+            .lineSpacing(2)
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .dzCardStyle()
+            .accessibilityIdentifier("today-plan-error-card")
     }
 }
 

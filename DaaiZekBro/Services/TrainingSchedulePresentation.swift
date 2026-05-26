@@ -8,6 +8,17 @@ enum TrainingSchedulePresentation {
         let days: [Day]
     }
 
+    struct TodayPlanCard {
+        let localDateKey: String
+        let titleText: String
+        let statusText: String?
+        let hintText: String?
+        let lastCompletionText: String?
+        let colorStyle: ColorStyle
+        let showsStartButton: Bool
+        let startTemplate: Template?
+    }
+
     struct CycleSummary {
         let slotCount: Int
         let workoutCount: Int
@@ -86,6 +97,84 @@ enum TrainingSchedulePresentation {
             hasCycle: true,
             summary: try summary(for: cycle, in: context),
             days: days
+        )
+    }
+
+    @MainActor
+    static func todayCard(
+        now: Date = Date(),
+        in context: ModelContext
+    ) throws -> TodayPlanCard? {
+        guard try WorkoutSessionLifecycle.currentOpenSession(in: context) == nil,
+              let cycle = try TrainingScheduleEngine.activeCycle(in: context) else {
+            return nil
+        }
+
+        let calendar = try calendar(timezoneIdentifier: cycle.timezoneIdentifier)
+        let today = calendar.startOfDay(for: now)
+        let plan = try TrainingScheduleEngine.plan(for: today, cycle: cycle, in: context)
+        let status = try TrainingScheduleEngine.completionStatus(for: plan, in: context)
+
+        if plan.isInvalidPlan {
+            return TodayPlanCard(
+                localDateKey: plan.localDateKey,
+                titleText: "计划已失效",
+                statusText: "计划已失效",
+                hintText: nil,
+                lastCompletionText: nil,
+                colorStyle: .invalid,
+                showsStartButton: false,
+                startTemplate: nil
+            )
+        }
+
+        if plan.isRestDay {
+            let hasWorkout = status == .unscheduledWorkout
+
+            return TodayPlanCard(
+                localDateKey: plan.localDateKey,
+                titleText: hasWorkout ? "今日：休息 · 已有训练记录" : "今日：休息",
+                statusText: hasWorkout ? "计划外训练" : nil,
+                hintText: nil,
+                lastCompletionText: nil,
+                colorStyle: .rest,
+                showsStartButton: false,
+                startTemplate: nil
+            )
+        }
+
+        guard let template = plan.template else {
+            return TodayPlanCard(
+                localDateKey: plan.localDateKey,
+                titleText: "计划已失效",
+                statusText: "计划已失效",
+                hintText: nil,
+                lastCompletionText: nil,
+                colorStyle: .invalid,
+                showsStartButton: false,
+                startTemplate: nil
+            )
+        }
+
+        let isCompleted = status == .completed
+        let hasOnlyNonPlanWorkout = status == .completedWithNonPlanTemplate
+
+        return TodayPlanCard(
+            localDateKey: plan.localDateKey,
+            titleText: template.name,
+            statusText: isCompleted ? "✓ 已完成" : nil,
+            hintText: hasOnlyNonPlanWorkout ? "今日已有其他训练记录" : nil,
+            lastCompletionText: isCompleted || hasOnlyNonPlanWorkout
+                ? nil
+                : try lastCompletionText(
+                    templateStableID: plan.templateStableID,
+                    before: today,
+                    calendar: calendar,
+                    in: context
+                ),
+            colorStyle: colorStyle(for: plan),
+            showsStartButton: isCompleted == false,
+            startTemplate: isCompleted ? nil : template
         )
     }
 
@@ -197,6 +286,65 @@ enum TrainingSchedulePresentation {
         let day = calendar.component(.day, from: date)
 
         return "\(month)/\(day)"
+    }
+
+    @MainActor
+    private static func lastCompletionText(
+        templateStableID: String,
+        before today: Date,
+        calendar: Calendar,
+        in context: ModelContext
+    ) throws -> String? {
+        guard templateStableID.isEmpty == false else {
+            return nil
+        }
+
+        let sessions = try context.fetch(FetchDescriptor<WorkoutSession>())
+        let lastSession = sessions
+            .compactMap { session -> (session: WorkoutSession, endedAt: Date)? in
+                guard let endedAt = session.endedAt,
+                      sessionTemplateStableID(session) == templateStableID else {
+                    return nil
+                }
+
+                guard calendar.startOfDay(for: endedAt) < today else {
+                    return nil
+                }
+
+                return (session, endedAt)
+            }
+            .sorted { lhs, rhs in
+                if lhs.endedAt != rhs.endedAt {
+                    return lhs.endedAt > rhs.endedAt
+                }
+
+                return lhs.session.startedAt > rhs.session.startedAt
+            }
+            .first
+
+        guard let endedAt = lastSession?.endedAt else {
+            return nil
+        }
+
+        return "上次完成 · \(longDateText(for: endedAt, calendar: calendar))"
+    }
+
+    private static func longDateText(
+        for date: Date,
+        calendar: Calendar
+    ) -> String {
+        let month = calendar.component(.month, from: date)
+        let day = calendar.component(.day, from: date)
+
+        return "\(month) 月 \(day) 日"
+    }
+
+    private static func sessionTemplateStableID(_ session: WorkoutSession) -> String {
+        if session.templateStableIDSnapshot.isEmpty == false {
+            return session.templateStableIDSnapshot
+        }
+
+        return session.template?.stableID ?? ""
     }
 
     private static func calendar(timezoneIdentifier: String) throws -> Calendar {

@@ -38,6 +38,8 @@ struct ContentView: View {
                     ExerciseLoggingView(sessionID: sessionID, exerciseName: exerciseName)
                 case .templateEdit(let templateID):
                     TemplateEditView(templateID: templateID)
+                case .trainingSchedule:
+                    TrainingScheduleView()
                 case .settings:
                     SettingsView()
                 }
@@ -57,6 +59,18 @@ struct ContentView: View {
     @MainActor
     private func writeSeedData() async {
         do {
+            #if DEBUG
+            if let fixtureName = AppLaunchConfiguration.uiFixtureName {
+                try UITestFixtures.write(
+                    named: fixtureName,
+                    now: AppLaunchConfiguration.now(),
+                    in: modelContext
+                )
+                seedStatus = .ready
+                return
+            }
+            #endif
+
             try SeedData.writeAndDedup(in: modelContext)
             seedStatus = .ready
         } catch {

@@ -263,6 +263,286 @@ struct TrainingSchedulePresentationTests {
         #expect(week.days[0].statusText == "✓ 已完成")
     }
 
+    @Test func todayPlanCardReturnsNilWithoutCycleAndWhenWorkoutIsOpen() throws {
+        let noCycleContext = try makeInMemoryContext()
+
+        #expect(try TrainingSchedulePresentation.todayCard(
+            now: Date(timeIntervalSince1970: 1_767_225_600),
+            in: noCycleContext
+        ) == nil)
+
+        let context = try makeInMemoryContext()
+        let timeZone = try requiredTimeZone("Asia/Shanghai")
+        let fixtures = try makeTemplates(in: context)
+        _ = try TrainingScheduleEngine.createCycle(
+            startDate: date(2026, 1, 1, 9, 0, 0, timeZone: timeZone),
+            timezoneIdentifier: timeZone.identifier,
+            slots: [TrainingScheduleSlotDraft(kind: .workout, template: fixtures.pushA)],
+            in: context
+        )
+        _ = try WorkoutSessionLifecycle.createSession(
+            for: fixtures.pushA,
+            in: context,
+            startedAt: date(2026, 1, 1, 10, 0, 0, timeZone: timeZone),
+            timeZone: timeZone
+        )
+
+        #expect(try TrainingSchedulePresentation.todayCard(
+            now: date(2026, 1, 1, 12, 0, 0, timeZone: timeZone),
+            in: context
+        ) == nil)
+    }
+
+    @Test func todayPlanCardBodyRouteIntentTargetsTrainingSchedule() {
+        #expect(TodayPlanCardRouteIntent.body == .trainingSchedule)
+    }
+
+    @Test func todayPlanCardTrainingDayShowsTemplateLastCompletionAndStartAction() throws {
+        let context = try makeInMemoryContext()
+        let timeZone = try requiredTimeZone("Asia/Shanghai")
+        let fixtures = try makeTemplates(in: context)
+        _ = try TrainingScheduleEngine.createCycle(
+            startDate: date(2026, 1, 1, 9, 0, 0, timeZone: timeZone),
+            timezoneIdentifier: timeZone.identifier,
+            slots: [TrainingScheduleSlotDraft(kind: .workout, template: fixtures.pushA)],
+            in: context
+        )
+        try createEndedSession(
+            for: fixtures.pushA,
+            startedAt: date(2025, 12, 30, 12, 0, 0, timeZone: timeZone),
+            in: context,
+            timeZone: timeZone
+        )
+
+        let card = try #require(try TrainingSchedulePresentation.todayCard(
+            now: date(2026, 1, 1, 12, 0, 0, timeZone: timeZone),
+            in: context
+        ))
+
+        #expect(card.localDateKey == "2026-01-01")
+        #expect(card.titleText == "Push A")
+        #expect(card.statusText == nil)
+        #expect(card.hintText == nil)
+        #expect(card.lastCompletionText == "上次完成 · 12 月 30 日")
+        #expect(card.colorStyle == .template(hex: "#D86838"))
+        #expect(card.showsStartButton)
+        #expect(card.startTemplate?.persistentModelID == fixtures.pushA.persistentModelID)
+    }
+
+    @Test func todayPlanCardCoversCompletedOffPlanRestAndInvalidStates() throws {
+        let timeZone = try requiredTimeZone("Asia/Shanghai")
+
+        try assertTodayPlanCard(timeZone: timeZone) { context, fixtures, targetDate in
+            try createEndedSession(for: fixtures.pushA, startedAt: targetDate, in: context, timeZone: timeZone)
+        } verify: { card in
+            #expect(card.titleText == "Push A")
+            #expect(card.statusText == "✓ 已完成")
+            #expect(card.showsStartButton == false)
+        }
+
+        try assertTodayPlanCard(timeZone: timeZone) { context, fixtures, targetDate in
+            try createEndedSession(for: fixtures.pullA, startedAt: targetDate, in: context, timeZone: timeZone)
+        } verify: { card in
+            #expect(card.titleText == "Push A")
+            #expect(card.statusText == nil)
+            #expect(card.hintText == "今日已有其他训练记录")
+            #expect(card.showsStartButton)
+        }
+
+        try assertTodayPlanCard(
+            timeZone: timeZone,
+            slots: [
+                TrainingScheduleSlotDraft(kind: .rest),
+                TrainingScheduleSlotDraft(kind: .workout, template: nil),
+            ]
+        ) { _, _, _ in
+        } verify: { card in
+            #expect(card.titleText == "今日：休息")
+            #expect(card.statusText == nil)
+            #expect(card.colorStyle == .rest)
+            #expect(card.showsStartButton == false)
+        }
+
+        try assertTodayPlanCard(
+            timeZone: timeZone,
+            slots: [
+                TrainingScheduleSlotDraft(kind: .rest),
+                TrainingScheduleSlotDraft(kind: .workout, template: nil),
+            ]
+        ) { context, fixtures, targetDate in
+            try createEndedSession(for: fixtures.pullA, startedAt: targetDate, in: context, timeZone: timeZone)
+        } verify: { card in
+            #expect(card.titleText == "今日：休息 · 已有训练记录")
+            #expect(card.statusText == "计划外训练")
+            #expect(card.showsStartButton == false)
+        }
+
+        try assertTodayPlanCard(timeZone: timeZone) { context, fixtures, _ in
+            try TemplateLibrary.delete(fixtures.pushA, in: context)
+        } verify: { card in
+            #expect(card.titleText == "计划已失效")
+            #expect(card.statusText == "计划已失效")
+            #expect(card.colorStyle == .invalid)
+            #expect(card.showsStartButton == false)
+        }
+    }
+
+    @Test func todayPlanCardUsesCycleTimezoneForTodayAndCompletionStatus() throws {
+        let context = try makeInMemoryContext()
+        let cycleTimeZone = try requiredTimeZone("Asia/Shanghai")
+        let utc = try requiredTimeZone("UTC")
+        let fixtures = try makeTemplates(in: context)
+        _ = try TrainingScheduleEngine.createCycle(
+            startDate: date(2026, 1, 2, 0, 0, 0, timeZone: cycleTimeZone),
+            timezoneIdentifier: cycleTimeZone.identifier,
+            slots: [TrainingScheduleSlotDraft(kind: .workout, template: fixtures.pushA)],
+            in: context
+        )
+        try createEndedSession(
+            for: fixtures.pushA,
+            startedAt: date(2026, 1, 2, 0, 10, 0, timeZone: cycleTimeZone),
+            in: context,
+            timeZone: cycleTimeZone
+        )
+
+        let card = try #require(try TrainingSchedulePresentation.todayCard(
+            now: date(2026, 1, 1, 16, 30, 0, timeZone: utc),
+            in: context
+        ))
+
+        #expect(card.localDateKey == "2026-01-02")
+        #expect(card.statusText == "✓ 已完成")
+        #expect(card.showsStartButton == false)
+    }
+
+    @Test func todayPlanCardLastCompletionUsesSameTemplateStableIdentityOnly() throws {
+        let context = try makeInMemoryContext()
+        let timeZone = try requiredTimeZone("Asia/Shanghai")
+        let fixtures = try makeTemplates(in: context)
+        _ = try TrainingScheduleEngine.createCycle(
+            startDate: date(2026, 1, 1, 9, 0, 0, timeZone: timeZone),
+            timezoneIdentifier: timeZone.identifier,
+            slots: [TrainingScheduleSlotDraft(kind: .workout, template: fixtures.pushA)],
+            in: context
+        )
+        try createEndedSession(
+            for: fixtures.pushA,
+            startedAt: date(2025, 12, 28, 12, 0, 0, timeZone: timeZone),
+            in: context,
+            timeZone: timeZone
+        )
+        try createEndedSession(
+            for: fixtures.pullA,
+            startedAt: date(2025, 12, 31, 12, 0, 0, timeZone: timeZone),
+            in: context,
+            timeZone: timeZone
+        )
+        try createEndedSession(
+            for: fixtures.pushA,
+            startedAt: date(2025, 12, 30, 12, 0, 0, timeZone: timeZone),
+            in: context,
+            timeZone: timeZone
+        )
+
+        let card = try #require(try TrainingSchedulePresentation.todayCard(
+            now: date(2026, 1, 1, 12, 0, 0, timeZone: timeZone),
+            in: context
+        ))
+
+        #expect(card.lastCompletionText == "上次完成 · 12 月 30 日")
+    }
+
+    @Test func todayPlanCardLastCompletionUsesEndedAtForBoundarySortingAndDateText() throws {
+        let context = try makeInMemoryContext()
+        let timeZone = try requiredTimeZone("Asia/Shanghai")
+        let fixtures = try makeTemplates(in: context)
+        _ = try TrainingScheduleEngine.createCycle(
+            startDate: date(2026, 1, 1, 9, 0, 0, timeZone: timeZone),
+            timezoneIdentifier: timeZone.identifier,
+            slots: [TrainingScheduleSlotDraft(kind: .workout, template: fixtures.pushA)],
+            in: context
+        )
+        try createEndedSession(
+            for: fixtures.pushA,
+            startedAt: date(2025, 12, 31, 23, 30, 0, timeZone: timeZone),
+            endedAt: date(2026, 1, 1, 0, 30, 0, timeZone: timeZone),
+            in: context,
+            timeZone: timeZone
+        )
+        try createEndedSession(
+            for: fixtures.pushA,
+            startedAt: date(2025, 12, 30, 10, 0, 0, timeZone: timeZone),
+            endedAt: date(2025, 12, 31, 23, 50, 0, timeZone: timeZone),
+            in: context,
+            timeZone: timeZone
+        )
+
+        let card = try #require(try TrainingSchedulePresentation.todayCard(
+            now: date(2026, 1, 1, 12, 0, 0, timeZone: timeZone),
+            in: context
+        ))
+
+        #expect(card.lastCompletionText == "上次完成 · 12 月 31 日")
+    }
+
+    @Test func completingPlanStartedWorkoutUpdatesTodayCardAndWeekStatus() throws {
+        let context = try makeInMemoryContext()
+        let timeZone = try requiredTimeZone("Asia/Shanghai")
+        let fixtures = try makeTemplates(in: context)
+        let targetDate = try date(2026, 1, 1, 12, 0, 0, timeZone: timeZone)
+        _ = try TrainingScheduleEngine.createCycle(
+            startDate: targetDate,
+            timezoneIdentifier: timeZone.identifier,
+            slots: [TrainingScheduleSlotDraft(kind: .workout, template: fixtures.pushA)],
+            in: context
+        )
+
+        let readyCard = try #require(try TrainingSchedulePresentation.todayCard(now: targetDate, in: context))
+        let template = try #require(readyCard.startTemplate)
+        let session = try WorkoutSessionLifecycle.createSession(
+            for: template,
+            in: context,
+            startedAt: targetDate,
+            timeZone: timeZone
+        )
+        try WorkoutSessionLifecycle.end(
+            session,
+            in: context,
+            endedAt: targetDate.addingTimeInterval(3_600)
+        )
+
+        let completedCard = try #require(try TrainingSchedulePresentation.todayCard(now: targetDate, in: context))
+        let week = try TrainingSchedulePresentation.week(now: targetDate, in: context)
+
+        #expect(completedCard.statusText == "✓ 已完成")
+        #expect(completedCard.showsStartButton == false)
+        #expect(week.days[0].statusText == "✓ 已完成")
+    }
+
+    @Test func deletingCycleHidesTodayPlanCard() throws {
+        let context = try makeInMemoryContext()
+        let timeZone = try requiredTimeZone("Asia/Shanghai")
+        let fixtures = try makeTemplates(in: context)
+        let cycle = try TrainingScheduleEngine.createCycle(
+            startDate: date(2026, 1, 1, 9, 0, 0, timeZone: timeZone),
+            timezoneIdentifier: timeZone.identifier,
+            slots: [TrainingScheduleSlotDraft(kind: .workout, template: fixtures.pushA)],
+            in: context
+        )
+
+        #expect(try TrainingSchedulePresentation.todayCard(
+            now: date(2026, 1, 1, 12, 0, 0, timeZone: timeZone),
+            in: context
+        ) != nil)
+
+        try TrainingScheduleEngine.deleteCycle(cycle, in: context)
+
+        #expect(try TrainingSchedulePresentation.todayCard(
+            now: date(2026, 1, 1, 12, 0, 0, timeZone: timeZone),
+            in: context
+        ) == nil)
+    }
+
     private func assertTodayStatusText(
         _ expectedText: String?,
         timeZone: TimeZone,
@@ -296,10 +576,44 @@ struct TrainingSchedulePresentationTests {
         #expect(week.days[0].statusText == expectedText)
     }
 
+    private func assertTodayPlanCard(
+        timeZone: TimeZone,
+        slots slotBuilder: [TrainingScheduleSlotDraft]? = nil,
+        arrange: (ModelContext, PresentationFixtures, Date) throws -> Void,
+        verify: (TrainingSchedulePresentation.TodayPlanCard) throws -> Void
+    ) throws {
+        let context = try makeInMemoryContext()
+        let fixtures = try makeTemplates(in: context)
+        let targetDate = try date(2026, 1, 1, 12, 0, 0, timeZone: timeZone)
+        let slots = slotBuilder ?? [
+            TrainingScheduleSlotDraft(kind: .workout, template: fixtures.pushA),
+            TrainingScheduleSlotDraft(kind: .workout, template: fixtures.pullA),
+        ]
+
+        _ = try TrainingScheduleEngine.createCycle(
+            startDate: targetDate,
+            timezoneIdentifier: timeZone.identifier,
+            slots: slots.map { draft in
+                if draft.kind == .workout && draft.template == nil {
+                    return TrainingScheduleSlotDraft(kind: .workout, template: fixtures.pushA)
+                }
+
+                return draft
+            },
+            in: context
+        )
+        try arrange(context, fixtures, targetDate)
+
+        let card = try #require(try TrainingSchedulePresentation.todayCard(now: targetDate, in: context))
+
+        try verify(card)
+    }
+
     @discardableResult
     private func createEndedSession(
         for template: Template,
         startedAt: Date,
+        endedAt: Date? = nil,
         in context: ModelContext,
         timeZone: TimeZone
     ) throws -> WorkoutSession {
@@ -312,7 +626,7 @@ struct TrainingSchedulePresentationTests {
         try WorkoutSessionLifecycle.end(
             session,
             in: context,
-            endedAt: startedAt.addingTimeInterval(3_600)
+            endedAt: endedAt ?? startedAt.addingTimeInterval(3_600)
         )
 
         return session

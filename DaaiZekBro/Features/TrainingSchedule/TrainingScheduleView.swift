@@ -20,7 +20,7 @@ struct TrainingScheduleView: View {
         _ = dataVersion
 
         return Result {
-            try TrainingSchedulePresentation.week(now: Date(), in: modelContext)
+            try TrainingSchedulePresentation.week(now: AppLaunchConfiguration.now(), in: modelContext)
         }
     }
 
