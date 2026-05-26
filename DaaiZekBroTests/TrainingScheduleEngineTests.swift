@@ -146,6 +146,7 @@ struct TrainingScheduleEngineTests {
             cycle: cycle,
             kind: .workout,
             template: fixtures.pullA,
+            now: targetDate,
             in: context
         )
         var plan = try TrainingScheduleEngine.plan(for: targetDate, cycle: cycle, in: context)
@@ -158,6 +159,7 @@ struct TrainingScheduleEngineTests {
             cycle: cycle,
             kind: .workout,
             template: fixtures.legsA,
+            now: targetDate,
             in: context
         )
         let overridesAfterSecondSet = try fetchOverrides(in: context)
@@ -167,13 +169,70 @@ struct TrainingScheduleEngineTests {
         #expect(plan.template?.name == "Legs A")
         #expect(plan.source == .override)
 
-        try TrainingScheduleEngine.resetOverride(for: targetDate, cycle: cycle, in: context)
+        try TrainingScheduleEngine.resetOverride(for: targetDate, cycle: cycle, now: targetDate, in: context)
         let overridesAfterReset = try fetchOverrides(in: context)
         plan = try TrainingScheduleEngine.plan(for: targetDate, cycle: cycle, in: context)
 
         #expect(overridesAfterReset.isEmpty)
         #expect(plan.template?.name == "Push A")
         #expect(plan.source == .cycle)
+    }
+
+    @Test func overrideTemplateRestResetAndRangeIsolation() throws {
+        let context = try makeInMemoryContext()
+        let timeZone = try requiredTimeZone("Asia/Shanghai")
+        let fixtures = try makePPLTemplates(in: context)
+        let targetDate = try date(2026, 1, 29, 12, 0, 0, timeZone: timeZone)
+        let nextDate = try date(2026, 1, 30, 12, 0, 0, timeZone: timeZone)
+        let cycle = try TrainingScheduleEngine.createCycle(
+            startDate: targetDate,
+            timezoneIdentifier: timeZone.identifier,
+            slots: [
+                TrainingScheduleSlotDraft(kind: .workout, template: fixtures.pushA),
+                TrainingScheduleSlotDraft(kind: .workout, template: fixtures.pullA),
+            ],
+            in: context
+        )
+
+        _ = try TrainingScheduleEngine.setOverride(
+            for: targetDate,
+            cycle: cycle,
+            kind: .workout,
+            template: fixtures.legsA,
+            now: targetDate,
+            in: context
+        )
+        var targetPlan = try TrainingScheduleEngine.plan(for: targetDate, cycle: cycle, in: context)
+        var nextPlan = try TrainingScheduleEngine.plan(for: nextDate, cycle: cycle, in: context)
+
+        #expect(targetPlan.template?.name == "Legs A")
+        #expect(targetPlan.source == .override)
+        #expect(nextPlan.template?.name == "Pull A")
+        #expect(nextPlan.source == .cycle)
+
+        _ = try TrainingScheduleEngine.setOverride(
+            for: targetDate,
+            cycle: cycle,
+            kind: .rest,
+            template: nil,
+            now: targetDate,
+            in: context
+        )
+        targetPlan = try TrainingScheduleEngine.plan(for: targetDate, cycle: cycle, in: context)
+        nextPlan = try TrainingScheduleEngine.plan(for: nextDate, cycle: cycle, in: context)
+
+        #expect(try fetchOverrides(in: context).count == 1)
+        #expect(targetPlan.isRestDay)
+        #expect(targetPlan.source == .override)
+        #expect(nextPlan.template?.name == "Pull A")
+        #expect(nextPlan.source == .cycle)
+
+        try TrainingScheduleEngine.resetOverride(for: targetDate, cycle: cycle, now: targetDate, in: context)
+        targetPlan = try TrainingScheduleEngine.plan(for: targetDate, cycle: cycle, in: context)
+
+        #expect(try fetchOverrides(in: context).isEmpty)
+        #expect(targetPlan.template?.name == "Push A")
+        #expect(targetPlan.source == .cycle)
     }
 
     @Test func overrideUpsertUsesCycleTimezoneDateKey() throws {
@@ -194,6 +253,7 @@ struct TrainingScheduleEngineTests {
             cycle: cycle,
             kind: .workout,
             template: fixtures.pullA,
+            now: localJan2Early,
             in: context
         )
         _ = try TrainingScheduleEngine.setOverride(
@@ -201,6 +261,7 @@ struct TrainingScheduleEngineTests {
             cycle: cycle,
             kind: .workout,
             template: fixtures.legsA,
+            now: localJan2Early,
             in: context
         )
 
@@ -305,16 +366,28 @@ struct TrainingScheduleEngineTests {
             cycle: cycle,
             kind: .workout,
             template: fixtures.pullA,
+            now: targetDate,
             in: context
         )
         try createEndedSession(for: fixtures.pullA, startedAt: targetDate, in: context, timeZone: timeZone)
 
         let plan = try TrainingScheduleEngine.plan(for: targetDate, cycle: cycle, in: context)
         let status = try TrainingScheduleEngine.completionStatus(for: plan, in: context)
-        let canOverride = try TrainingScheduleEngine.canOverride(for: targetDate, cycle: cycle, in: context)
+        let availability = try TrainingScheduleEngine.overrideAvailability(
+            for: targetDate,
+            cycle: cycle,
+            now: targetDate,
+            in: context
+        )
+        let canOverride = try TrainingScheduleEngine.canOverride(for: targetDate, cycle: cycle, now: targetDate, in: context)
 
         #expect(plan.template?.name == "Pull A")
         #expect(status == .completed)
+        #expect(availability == .locked(.completedPlan))
+        #expect(
+            TrainingScheduleEngineError.overrideLocked(.completedPlan).localizedDescription
+                == "当天已按计划完成训练，覆盖操作不可用"
+        )
         #expect(canOverride == false)
 
         var didRejectOverride = false
@@ -324,16 +397,17 @@ struct TrainingScheduleEngineTests {
                 cycle: cycle,
                 kind: .workout,
                 template: fixtures.legsA,
+                now: targetDate,
                 in: context
             )
-        } catch TrainingScheduleEngineError.overrideLocked {
+        } catch TrainingScheduleEngineError.overrideLocked(.completedPlan) {
             didRejectOverride = true
         }
 
         var didRejectReset = false
         do {
-            try TrainingScheduleEngine.resetOverride(for: targetDate, cycle: cycle, in: context)
-        } catch TrainingScheduleEngineError.overrideLocked {
+            try TrainingScheduleEngine.resetOverride(for: targetDate, cycle: cycle, now: targetDate, in: context)
+        } catch TrainingScheduleEngineError.overrideLocked(.completedPlan) {
             didRejectReset = true
         }
 
@@ -357,7 +431,29 @@ struct TrainingScheduleEngineTests {
 
             try createEndedSession(for: fixtures.pullA, startedAt: targetDate, in: context, timeZone: timeZone)
 
-            #expect(try TrainingScheduleEngine.canOverride(for: targetDate, cycle: cycle, in: context))
+            let planBeforeOverride = try TrainingScheduleEngine.plan(for: targetDate, cycle: cycle, in: context)
+
+            #expect(try TrainingScheduleEngine.completionStatus(for: planBeforeOverride, in: context) == .completedWithNonPlanTemplate)
+            #expect(try TrainingScheduleEngine.overrideAvailability(
+                for: targetDate,
+                cycle: cycle,
+                now: targetDate,
+                in: context
+            ) == .available)
+            #expect(try TrainingScheduleEngine.canOverride(for: targetDate, cycle: cycle, now: targetDate, in: context))
+
+            _ = try TrainingScheduleEngine.setOverride(
+                for: targetDate,
+                cycle: cycle,
+                kind: .workout,
+                template: fixtures.pullA,
+                now: targetDate,
+                in: context
+            )
+            let planAfterOverride = try TrainingScheduleEngine.plan(for: targetDate, cycle: cycle, in: context)
+
+            #expect(planAfterOverride.template?.name == "Pull A")
+            #expect(try TrainingScheduleEngine.completionStatus(for: planAfterOverride, in: context) == .completed)
         }
 
         do {
@@ -374,8 +470,110 @@ struct TrainingScheduleEngineTests {
             try createEndedSession(for: fixtures.pushA, startedAt: targetDate, in: context, timeZone: timeZone)
             try TemplateLibrary.delete(fixtures.pushA, in: context)
 
-            #expect(try TrainingScheduleEngine.canOverride(for: targetDate, cycle: cycle, in: context))
+            #expect(try TrainingScheduleEngine.overrideAvailability(
+                for: targetDate,
+                cycle: cycle,
+                now: targetDate,
+                in: context
+            ) == .available)
+            #expect(try TrainingScheduleEngine.canOverride(for: targetDate, cycle: cycle, now: targetDate, in: context))
         }
+    }
+
+    @Test func historicalOverrideAvailabilityBlocksYesterdayAndAllowsTodayAndFuture() throws {
+        let context = try makeInMemoryContext()
+        let timeZone = try requiredTimeZone("Asia/Shanghai")
+        let fixtures = try makePPLTemplates(in: context)
+        let yesterday = try date(2026, 1, 1, 12, 0, 0, timeZone: timeZone)
+        let today = try date(2026, 1, 2, 12, 0, 0, timeZone: timeZone)
+        let tomorrow = try date(2026, 1, 3, 12, 0, 0, timeZone: timeZone)
+        let cycle = try TrainingScheduleEngine.createCycle(
+            startDate: yesterday,
+            timezoneIdentifier: timeZone.identifier,
+            slots: [
+                TrainingScheduleSlotDraft(kind: .workout, template: fixtures.pushA),
+                TrainingScheduleSlotDraft(kind: .workout, template: fixtures.pullA),
+                TrainingScheduleSlotDraft(kind: .workout, template: fixtures.legsA),
+            ],
+            in: context
+        )
+        _ = try TrainingScheduleEngine.setOverride(
+            for: yesterday,
+            cycle: cycle,
+            kind: .workout,
+            template: fixtures.pullA,
+            now: yesterday,
+            in: context
+        )
+
+        let yesterdayAvailability = try TrainingScheduleEngine.overrideAvailability(
+            for: yesterday,
+            cycle: cycle,
+            now: today,
+            in: context
+        )
+        let todayAvailability = try TrainingScheduleEngine.overrideAvailability(
+            for: today,
+            cycle: cycle,
+            now: today,
+            in: context
+        )
+        let tomorrowAvailability = try TrainingScheduleEngine.overrideAvailability(
+            for: tomorrow,
+            cycle: cycle,
+            now: today,
+            in: context
+        )
+
+        #expect(yesterdayAvailability == .locked(.historicalDate))
+        #expect(
+            TrainingScheduleEngineError.overrideLocked(.historicalDate).localizedDescription
+                == "历史日期不能覆盖"
+        )
+        #expect(try TrainingScheduleEngine.canOverride(for: yesterday, cycle: cycle, now: today, in: context) == false)
+        #expect(todayAvailability == .available)
+        #expect(tomorrowAvailability == .available)
+
+        var didRejectHistoricalSet = false
+        do {
+            _ = try TrainingScheduleEngine.setOverride(
+                for: yesterday,
+                cycle: cycle,
+                kind: .workout,
+                template: fixtures.legsA,
+                now: today,
+                in: context
+            )
+        } catch TrainingScheduleEngineError.overrideLocked(.historicalDate) {
+            didRejectHistoricalSet = true
+        }
+
+        var didRejectHistoricalReset = false
+        do {
+            try TrainingScheduleEngine.resetOverride(for: yesterday, cycle: cycle, now: today, in: context)
+        } catch TrainingScheduleEngineError.overrideLocked(.historicalDate) {
+            didRejectHistoricalReset = true
+        }
+
+        _ = try TrainingScheduleEngine.setOverride(
+            for: today,
+            cycle: cycle,
+            kind: .rest,
+            template: nil,
+            now: today,
+            in: context
+        )
+        _ = try TrainingScheduleEngine.setOverride(
+            for: tomorrow,
+            cycle: cycle,
+            kind: .workout,
+            template: fixtures.pushA,
+            now: today,
+            in: context
+        )
+
+        #expect(didRejectHistoricalSet)
+        #expect(didRejectHistoricalReset)
     }
 
     @Test func noPlanWithEndedSessionIsUnscheduledWorkout() throws {
@@ -525,6 +723,7 @@ struct TrainingScheduleEngineTests {
             cycle: cycle,
             kind: .workout,
             template: fixtures.legsA,
+            now: overrideDate,
             in: context
         )
 
@@ -674,6 +873,7 @@ struct TrainingScheduleEngineTests {
             cycle: cycle,
             kind: .workout,
             template: fixtures.pullA,
+            now: startDate,
             in: context
         )
 

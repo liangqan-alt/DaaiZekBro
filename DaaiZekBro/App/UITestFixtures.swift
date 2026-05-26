@@ -21,6 +21,15 @@ enum UITestFixtures {
         let today = startOfDay(for: now, timeZone: timeZone)
 
         switch name {
+        case "training-day-override-ready":
+            try createCycle(startDate: today, timeZone: timeZone, slots: [
+                TrainingScheduleSlotDraft(kind: .workout, template: push),
+            ], in: context)
+        case "training-day-override-completed":
+            try createCycle(startDate: today, timeZone: timeZone, slots: [
+                TrainingScheduleSlotDraft(kind: .workout, template: push),
+            ], in: context)
+            try createEndedSession(for: push, startedAt: now, timeZone: timeZone, in: context)
         case "today-plan-no-cycle":
             return
         case "today-plan-ready":

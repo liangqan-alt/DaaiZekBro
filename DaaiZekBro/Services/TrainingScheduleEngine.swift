@@ -7,7 +7,7 @@ enum TrainingScheduleEngineError: Error, LocalizedError, Equatable {
     case allRestSlots
     case invalidWorkoutSlotTemplate
     case invalidTimeZone
-    case overrideLocked
+    case overrideLocked(TrainingScheduleOverrideAvailability.Reason)
 
     var errorDescription: String? {
         switch self {
@@ -21,8 +21,25 @@ enum TrainingScheduleEngineError: Error, LocalizedError, Equatable {
             "训练日槽位缺少训练模板"
         case .invalidTimeZone:
             "训练周期时区无效"
-        case .overrideLocked:
-            "当天计划已完成，不能覆盖"
+        case .overrideLocked(.completedPlan):
+            "当天已按计划完成训练，覆盖操作不可用"
+        case .overrideLocked(.historicalDate):
+            "历史日期不能覆盖"
+        }
+    }
+
+    static func == (lhs: TrainingScheduleEngineError, rhs: TrainingScheduleEngineError) -> Bool {
+        switch (lhs, rhs) {
+        case (.activeCycleAlreadyExists, .activeCycleAlreadyExists),
+             (.emptySlots, .emptySlots),
+             (.allRestSlots, .allRestSlots),
+             (.invalidWorkoutSlotTemplate, .invalidWorkoutSlotTemplate),
+             (.invalidTimeZone, .invalidTimeZone),
+             (.overrideLocked(.completedPlan), .overrideLocked(.completedPlan)),
+             (.overrideLocked(.historicalDate), .overrideLocked(.historicalDate)):
+            return true
+        default:
+            return false
         }
     }
 }
@@ -71,6 +88,20 @@ enum TrainingScheduleCompletionStatus: Equatable {
     case completedWithNonPlanTemplate
     case completedWithDeletedPlanTemplate
     case unscheduledWorkout
+}
+
+enum TrainingScheduleOverrideAvailability: Equatable {
+    case available
+    case locked(Reason)
+
+    enum Reason: Equatable {
+        case historicalDate
+        case completedPlan
+    }
+
+    var isAvailable: Bool {
+        self == .available
+    }
 }
 
 @MainActor
@@ -206,14 +237,18 @@ enum TrainingScheduleEngine {
         cycle: TrainingCycle,
         kind: TrainingPlanEntryKind,
         template: Template?,
+        now: Date = Date(),
         in context: ModelContext
     ) throws -> TrainingDayOverride {
         if kind == .workout && template == nil {
             throw TrainingScheduleEngineError.invalidWorkoutSlotTemplate
         }
 
-        guard try canOverride(for: date, cycle: cycle, in: context) else {
-            throw TrainingScheduleEngineError.overrideLocked
+        switch try overrideAvailability(for: date, cycle: cycle, now: now, in: context) {
+        case .available:
+            break
+        case .locked(let reason):
+            throw TrainingScheduleEngineError.overrideLocked(reason)
         }
 
         let localDateKey = try localDateKey(for: date, timezoneIdentifier: cycle.timezoneIdentifier)
@@ -230,10 +265,14 @@ enum TrainingScheduleEngine {
     static func resetOverride(
         for date: Date,
         cycle: TrainingCycle,
+        now: Date = Date(),
         in context: ModelContext
     ) throws {
-        guard try canOverride(for: date, cycle: cycle, in: context) else {
-            throw TrainingScheduleEngineError.overrideLocked
+        switch try overrideAvailability(for: date, cycle: cycle, now: now, in: context) {
+        case .available:
+            break
+        case .locked(let reason):
+            throw TrainingScheduleEngineError.overrideLocked(reason)
         }
 
         let localDateKey = try localDateKey(for: date, timezoneIdentifier: cycle.timezoneIdentifier)
@@ -297,12 +336,26 @@ enum TrainingScheduleEngine {
     static func canOverride(
         for date: Date,
         cycle: TrainingCycle,
+        now: Date = Date(),
         in context: ModelContext
     ) throws -> Bool {
+        try overrideAvailability(for: date, cycle: cycle, now: now, in: context).isAvailable
+    }
+
+    static func overrideAvailability(
+        for date: Date,
+        cycle: TrainingCycle,
+        now: Date = Date(),
+        in context: ModelContext
+    ) throws -> TrainingScheduleOverrideAvailability {
+        if try isHistoricalDate(date, before: now, timezoneIdentifier: cycle.timezoneIdentifier) {
+            return .locked(.historicalDate)
+        }
+
         let plan = try plan(for: date, cycle: cycle, in: context)
 
         guard plan.isValidWorkoutPlan else {
-            return true
+            return .available
         }
 
         let sessions = try endedSessions(
@@ -311,7 +364,9 @@ enum TrainingScheduleEngine {
             in: context
         )
 
-        return hasMatchingSession(templateStableID: plan.templateStableID, in: sessions) == false
+        return hasMatchingSession(templateStableID: plan.templateStableID, in: sessions)
+            ? .locked(.completedPlan)
+            : .available
     }
 
     private static func validate(_ slots: [TrainingScheduleSlotDraft]) throws {
@@ -440,6 +495,16 @@ enum TrainingScheduleEngine {
         }
 
         return String(format: "%04d-%02d-%02d", year, month, day)
+    }
+
+    private static func isHistoricalDate(
+        _ date: Date,
+        before now: Date,
+        timezoneIdentifier: String
+    ) throws -> Bool {
+        let calendar = try calendar(timezoneIdentifier: timezoneIdentifier)
+
+        return calendar.startOfDay(for: date) < calendar.startOfDay(for: now)
     }
 
     private static func calendar(timezoneIdentifier: String) throws -> Calendar {

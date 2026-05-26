@@ -39,7 +39,9 @@ struct ContentView: View {
                 case .templateEdit(let templateID):
                     TemplateEditView(templateID: templateID)
                 case .trainingSchedule:
-                    TrainingScheduleView()
+                    TrainingScheduleView(path: $path)
+                case .trainingScheduleDay(let date, let localDateKey):
+                    TrainingScheduleDayDetailView(date: date, localDateKey: localDateKey)
                 case .settings:
                     SettingsView()
                 }
@@ -61,6 +63,9 @@ struct ContentView: View {
         do {
             #if DEBUG
             if let fixtureName = AppLaunchConfiguration.uiFixtureName {
+                guard seedStatus == .loading else { return }
+
+                try resetUITestFixtureStore()
                 try UITestFixtures.write(
                     named: fixtureName,
                     now: AppLaunchConfiguration.now(),
@@ -91,6 +96,28 @@ struct ContentView: View {
 
         notificationRouter.consume(payload)
     }
+
+    #if DEBUG
+    @MainActor
+    private func resetUITestFixtureStore() throws {
+        try deleteAll(WorkoutSet.self)
+        try deleteAll(WorkoutSessionExerciseSnapshot.self)
+        try deleteAll(WorkoutSession.self)
+        try deleteAll(TrainingDayOverride.self)
+        try deleteAll(TrainingCycleSlot.self)
+        try deleteAll(TrainingCycle.self)
+        try deleteAll(TemplateExercise.self)
+        try deleteAll(Template.self)
+        try deleteAll(Exercise.self)
+        try modelContext.save()
+    }
+
+    private func deleteAll<T: PersistentModel>(_ modelType: T.Type) throws {
+        for model in try modelContext.fetch(FetchDescriptor<T>()) {
+            modelContext.delete(model)
+        }
+    }
+    #endif
 }
 
 private enum SeedStatus: Equatable {

@@ -158,6 +158,7 @@ struct TrainingSchedulePresentationTests {
                 cycle: cycle,
                 kind: .workout,
                 template: fixtures.pullA,
+                now: date(2026, 1, 1, 12, 0, 0, timeZone: timeZone),
                 in: context
             )
 
@@ -192,6 +193,7 @@ struct TrainingSchedulePresentationTests {
             cycle: cycle,
             kind: .workout,
             template: fixtures.pullA,
+            now: date(2026, 1, 1, 12, 0, 0, timeZone: timeZone),
             in: context
         )
         try createEndedSession(
@@ -516,6 +518,88 @@ struct TrainingSchedulePresentationTests {
 
         #expect(completedCard.statusText == "✓ 已完成")
         #expect(completedCard.showsStartButton == false)
+        #expect(week.days[0].statusText == "✓ 已完成")
+    }
+
+    @Test func todayOverrideSyncsWeekAndTodayCard() throws {
+        let context = try makeInMemoryContext()
+        let timeZone = try requiredTimeZone("Asia/Shanghai")
+        let fixtures = try makeTemplates(in: context)
+        let targetDate = try date(2026, 1, 1, 12, 0, 0, timeZone: timeZone)
+        let cycle = try TrainingScheduleEngine.createCycle(
+            startDate: targetDate,
+            timezoneIdentifier: timeZone.identifier,
+            slots: [
+                TrainingScheduleSlotDraft(kind: .workout, template: fixtures.pushA),
+                TrainingScheduleSlotDraft(kind: .workout, template: fixtures.legsA),
+            ],
+            in: context
+        )
+        _ = try TrainingScheduleEngine.setOverride(
+            for: targetDate,
+            cycle: cycle,
+            kind: .workout,
+            template: fixtures.pullA,
+            now: targetDate,
+            in: context
+        )
+
+        let week = try TrainingSchedulePresentation.week(now: targetDate, in: context)
+        let card = try #require(try TrainingSchedulePresentation.todayCard(now: targetDate, in: context))
+
+        #expect(week.days[0].title == "Pull A")
+        #expect(week.days[0].source == .override)
+        #expect(week.days[0].statusText == nil)
+        #expect(week.days[0].colorStyle == .template(hex: "#4E7BA6"))
+        #expect(card.titleText == "Pull A")
+        #expect(card.statusText == nil)
+        #expect(card.colorStyle == .template(hex: "#4E7BA6"))
+        #expect(card.startTemplate?.persistentModelID == fixtures.pullA.persistentModelID)
+    }
+
+    @Test func startFlowAfterTodayOverrideUsesOverrideTemplateAndCompletionUpdatesPresentation() throws {
+        let context = try makeInMemoryContext()
+        let timeZone = try requiredTimeZone("Asia/Shanghai")
+        let fixtures = try makeTemplates(in: context)
+        let targetDate = try date(2026, 1, 1, 12, 0, 0, timeZone: timeZone)
+        let cycle = try TrainingScheduleEngine.createCycle(
+            startDate: targetDate,
+            timezoneIdentifier: timeZone.identifier,
+            slots: [TrainingScheduleSlotDraft(kind: .workout, template: fixtures.pushA)],
+            in: context
+        )
+        _ = try TrainingScheduleEngine.setOverride(
+            for: targetDate,
+            cycle: cycle,
+            kind: .workout,
+            template: fixtures.pullA,
+            now: targetDate,
+            in: context
+        )
+
+        let readyCard = try #require(try TrainingSchedulePresentation.todayCard(now: targetDate, in: context))
+        let template = try #require(readyCard.startTemplate)
+        let session = try WorkoutSessionLifecycle.createSession(
+            for: template,
+            in: context,
+            startedAt: targetDate,
+            timeZone: timeZone
+        )
+        try WorkoutSessionLifecycle.end(
+            session,
+            in: context,
+            endedAt: targetDate.addingTimeInterval(3_600)
+        )
+
+        let completedCard = try #require(try TrainingSchedulePresentation.todayCard(now: targetDate, in: context))
+        let week = try TrainingSchedulePresentation.week(now: targetDate, in: context)
+
+        #expect(template.persistentModelID == fixtures.pullA.persistentModelID)
+        #expect(session.templateStableIDSnapshot == fixtures.pullA.stableID)
+        #expect(completedCard.titleText == "Pull A")
+        #expect(completedCard.statusText == "✓ 已完成")
+        #expect(completedCard.showsStartButton == false)
+        #expect(week.days[0].title == "Pull A")
         #expect(week.days[0].statusText == "✓ 已完成")
     }
 

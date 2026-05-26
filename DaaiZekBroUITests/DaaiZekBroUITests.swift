@@ -57,7 +57,7 @@ final class DaaiZekBroUITests: XCTestCase {
                 XCTAssertTrue(app.staticTexts[text].exists, "Missing \(text) in \(testCase.fixture)")
             }
 
-            XCTAssertEqual(app.buttons["开始训练"].exists, testCase.showsStart)
+            XCTAssertEqual(todayPlanStartButton(in: app).exists, testCase.showsStart)
             XCTAssertFalse(app.buttons["continue-workout-card"].exists)
             app.terminate()
         }
@@ -81,14 +81,14 @@ final class DaaiZekBroUITests: XCTestCase {
     func testStartTodayPlanCompletesAndSyncsHomeAndSchedule() throws {
         let app = launchUITestApp(fixture: "today-plan-ready")
 
-        XCTAssertTrue(app.buttons["开始训练"].waitForExistence(timeout: 5))
-        app.buttons["开始训练"].tap()
+        XCTAssertTrue(todayPlanStartButton(in: app).waitForExistence(timeout: 5))
+        todayPlanStartButton(in: app).tap()
 
         XCTAssertTrue(app.staticTexts["本次训练 · SESSION"].waitForExistence(timeout: 5))
         app.buttons["结束训练"].tap()
 
         XCTAssertTrue(app.staticTexts["✓ 已完成"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.buttons["开始训练"].exists)
+        XCTAssertFalse(todayPlanStartButton(in: app).exists)
 
         todayPlanCardBody(in: app).tap()
 
@@ -102,6 +102,87 @@ final class DaaiZekBroUITests: XCTestCase {
 
         XCTAssertTrue(app.buttons["continue-workout-card"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.staticTexts["今日计划"].exists)
+    }
+
+    @MainActor
+    func testTrainingScheduleDayDetailOverrideSyncsHomeAndSchedule() throws {
+        let app = launchUITestApp(fixture: "training-day-override-ready")
+
+        XCTAssertTrue(app.staticTexts["Push A"].waitForExistence(timeout: 5))
+
+        openTodayScheduleDayDetail(in: app)
+        setTodayOverrideToPullA(in: app)
+        XCTAssertTrue(app.staticTexts["Pull A"].waitForExistence(timeout: 5))
+
+        returnToTrainingSchedule(in: app)
+        XCTAssertTrue(app.staticTexts["Pull A"].waitForExistence(timeout: 5))
+
+        returnHome(in: app)
+        assertTodayPlanCardContains("Pull A", in: app)
+        XCTAssertTrue(todayPlanStartButton(in: app).waitForExistence(timeout: 5))
+
+        openTodayScheduleDayDetail(in: app)
+        waitForElement(identifier: "training-day-override-rest-button", in: app).tap()
+        XCTAssertTrue(app.staticTexts["休息"].waitForExistence(timeout: 5))
+
+        returnToTrainingSchedule(in: app)
+        XCTAssertTrue(app.staticTexts["休息"].waitForExistence(timeout: 5))
+
+        returnHome(in: app)
+        XCTAssertTrue(app.staticTexts["今日：休息"].waitForExistence(timeout: 5))
+        XCTAssertFalse(todayPlanStartButton(in: app).exists)
+
+        openTodayScheduleDayDetail(in: app)
+        waitForElement(identifier: "training-day-reset-override-button", in: app).tap()
+        XCTAssertTrue(app.staticTexts["Push A"].waitForExistence(timeout: 5))
+
+        returnToTrainingSchedule(in: app)
+        XCTAssertTrue(app.staticTexts["Push A"].waitForExistence(timeout: 5))
+
+        returnHome(in: app)
+        assertTodayPlanCardContains("Push A", in: app)
+        XCTAssertTrue(todayPlanStartButton(in: app).waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    func testTrainingScheduleCompletedDayDetailLocksOverrides() throws {
+        let app = launchUITestApp(fixture: "training-day-override-completed")
+
+        openTodayScheduleDayDetail(in: app)
+
+        XCTAssertTrue(waitForElement(identifier: "training-day-override-locked-message", in: app).exists)
+        assertUnavailable(identifier: "training-day-override-template-picker", in: app)
+        assertUnavailable(identifier: "training-day-override-template-button", in: app)
+        assertUnavailable(identifier: "training-day-override-rest-button", in: app)
+        assertUnavailable(identifier: "training-day-reset-override-button", in: app)
+    }
+
+    @MainActor
+    func testOverrideToPullThenStartFromHomeCompletesAndSyncsHomeAndSchedule() throws {
+        let app = launchUITestApp(fixture: "training-day-override-ready")
+
+        openTodayScheduleDayDetail(in: app)
+        setTodayOverrideToPullA(in: app)
+        returnHome(in: app)
+
+        assertTodayPlanCardContains("Pull A", in: app)
+        XCTAssertTrue(todayPlanStartButton(in: app).waitForExistence(timeout: 5))
+        todayPlanStartButton(in: app).tap()
+
+        XCTAssertTrue(
+            app.navigationBars["Pull A"].waitForExistence(timeout: 3)
+                || app.staticTexts["Pull A"].waitForExistence(timeout: 3)
+        )
+        app.buttons["结束训练"].tap()
+
+        XCTAssertTrue(app.staticTexts["✓ 已完成"].waitForExistence(timeout: 5))
+        XCTAssertFalse(todayPlanStartButton(in: app).exists)
+
+        todayPlanCardBody(in: app).tap()
+
+        XCTAssertTrue(app.scrollViews["training-schedule-screen"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Pull A"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["✓ 已完成"].exists)
     }
 
     @MainActor
@@ -127,6 +208,134 @@ final class DaaiZekBroUITests: XCTestCase {
     }
 
     private func todayPlanCardBody(in app: XCUIApplication) -> XCUIElement {
-        app.staticTexts["今日计划"].firstMatch
+        let identifiedElement = app.descendants(matching: .any)["today-plan-card-body"].firstMatch
+        if identifiedElement.exists {
+            return identifiedElement
+        }
+
+        let labelledCard = app.buttons.matching(
+            NSPredicate(format: "label BEGINSWITH %@", "今日计划卡")
+        ).firstMatch
+        if labelledCard.exists {
+            return labelledCard
+        }
+
+        return app.staticTexts["今日计划"].firstMatch
+    }
+
+    private func todayPlanStartButton(in app: XCUIApplication) -> XCUIElement {
+        let identifiedElement = app.descendants(matching: .any)["today-plan-start-button"].firstMatch
+        if identifiedElement.exists {
+            return identifiedElement
+        }
+
+        return app.buttons["开始训练"].firstMatch
+    }
+
+    private func openTodayScheduleDayDetail(in app: XCUIApplication) {
+        if app.scrollViews["training-schedule-screen"].exists == false {
+            openTrainingSchedule(in: app)
+        }
+
+        XCTAssertTrue(app.scrollViews["training-schedule-screen"].waitForExistence(timeout: 5))
+        tapTodayScheduleRow(in: app)
+        XCTAssertTrue(waitForElement(identifier: "training-schedule-day-detail", in: app).exists)
+    }
+
+    private func tapTodayScheduleRow(in app: XCUIApplication) {
+        let identifiedRow = app.descendants(matching: .any)["training-schedule-day-2026-01-01"].firstMatch
+        if identifiedRow.waitForExistence(timeout: 1) {
+            identifiedRow.tap()
+            return
+        }
+
+        let weekList = waitForElement(identifier: "training-schedule-week-list", in: app)
+        weekList.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.08)).tap()
+    }
+
+    private func setTodayOverrideToPullA(in app: XCUIApplication) {
+        waitForElement(identifier: "training-day-override-template-button", in: app).tap()
+        XCTAssertTrue(waitForElement(identifier: "training-day-override-template-picker", in: app).exists)
+        waitForElement(identifier: "training-day-template-Pull A", in: app).tap()
+    }
+
+    private func openTrainingSchedule(in app: XCUIApplication) {
+        let settingsButton = app.buttons["设置"]
+        XCTAssertTrue(settingsButton.waitForExistence(timeout: 5))
+        settingsButton.tap()
+
+        waitForElement(identifier: "training-schedule-entry", in: app).tap()
+    }
+
+    private func returnHome(in app: XCUIApplication) {
+        for _ in 0..<4 where app.navigationBars["训练模板"].exists == false {
+            tapBackButton(in: app)
+        }
+
+        XCTAssertTrue(app.navigationBars["训练模板"].waitForExistence(timeout: 5))
+    }
+
+    private func returnToTrainingSchedule(in app: XCUIApplication) {
+        if app.descendants(matching: .any)["training-schedule-day-detail"].firstMatch.exists {
+            tapBackButton(in: app)
+        }
+
+        XCTAssertTrue(app.scrollViews["training-schedule-screen"].waitForExistence(timeout: 5))
+    }
+
+    private func tapBackButton(in app: XCUIApplication) {
+        let firstBackButton = app.navigationBars.buttons.element(boundBy: 0)
+        XCTAssertTrue(firstBackButton.waitForExistence(timeout: 5))
+        firstBackButton.tap()
+    }
+
+    @discardableResult
+    private func waitForElement(
+        identifier: String,
+        in app: XCUIApplication,
+        timeout: TimeInterval = 5,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) -> XCUIElement {
+        let element = app.descendants(matching: .any)[identifier].firstMatch
+        XCTAssertTrue(element.waitForExistence(timeout: timeout), "Missing \(identifier)", file: file, line: line)
+
+        return element
+    }
+
+    private func assertTodayPlanCardContains(
+        _ text: String,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let card = todayPlanCardBody(in: app)
+        guard card.waitForExistence(timeout: 2) else {
+            XCTAssertTrue(
+                app.staticTexts[text].waitForExistence(timeout: 5),
+                "Today plan should show \(text)",
+                file: file,
+                line: line
+            )
+            return
+        }
+
+        let cardText = card.descendants(matching: .staticText)[text].firstMatch
+        XCTAssertTrue(
+            card.label.contains(text) || cardText.waitForExistence(timeout: 2),
+            "Today plan card should show \(text). Current label: \(card.label)",
+            file: file,
+            line: line
+        )
+    }
+
+    private func assertUnavailable(
+        identifier: String,
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let element = app.descendants(matching: .any)[identifier].firstMatch
+        XCTAssertFalse(element.exists && element.isEnabled, "\(identifier) should be unavailable", file: file, line: line)
     }
 }

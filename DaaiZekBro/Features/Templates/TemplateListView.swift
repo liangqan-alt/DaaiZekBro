@@ -252,16 +252,59 @@ struct TemplateListView: View {
     }
 
     private var scheduleDataVersion: Int {
-        cycles.count
-            + slots.count
-            + overrides.count
-            + sessions.count
-            + templates.reduce(0) { partialResult, template in
-                partialResult
-                    + template.name.count
-                    + template.stableID.count
-                    + (template.colorHex?.count ?? 0)
-            }
+        let cycleVersion = cycles.reduce(0) { partialResult, cycle in
+            partialResult
+                + cycle.id.uuidString.count
+                + Int(cycle.startDate.timeIntervalSince1970)
+                + cycle.timezoneIdentifier.count
+        }
+
+        let slotVersion = slots.reduce(0) { partialResult, slot in
+            partialResult
+                + (slot.cycle?.id.uuidString.count ?? 0)
+                + slot.orderIndex
+                + slot.kind.rawValue.count
+                + slot.templateStableID.count
+                + (slot.template?.stableID.count ?? 0)
+                + (slot.template?.name.count ?? 0)
+                + (slot.template?.colorHex?.count ?? 0)
+        }
+
+        let overrideVersion = overrides.reduce(0) { partialResult, dayOverride in
+            partialResult
+                + (dayOverride.cycle?.id.uuidString.count ?? 0)
+                + dayOverride.localDateKey.count
+                + dayOverride.cycleDateKey.count
+                + dayOverride.kind.rawValue.count
+                + dayOverride.templateStableID.count
+                + (dayOverride.template?.stableID.count ?? 0)
+                + (dayOverride.template?.name.count ?? 0)
+                + (dayOverride.template?.colorHex?.count ?? 0)
+        }
+
+        let sessionVersion = sessions.reduce(0) { partialResult, session in
+            partialResult
+                + session.id.uuidString.count
+                + (session.template?.stableID.count ?? 0)
+                + session.templateNameSnapshot.count
+                + session.templateStableIDSnapshot.count
+                + Int(session.startedAt.timeIntervalSince1970)
+                + Int(session.endedAt?.timeIntervalSince1970 ?? 0)
+        }
+
+        let templateVersion = templates.reduce(0) { partialResult, template in
+            partialResult
+                + template.name.count
+                + template.sortIndex
+                + template.stableID.count
+                + (template.colorHex?.count ?? 0)
+        }
+
+        return cycleVersion
+            + slotVersion
+            + overrideVersion
+            + sessionVersion
+            + templateVersion
     }
 
     private var pendingTemplate: Template? {
@@ -548,10 +591,10 @@ private struct TodayPlanCardView: View {
                 }
                 .contentShape(Rectangle())
             }
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel("今日计划卡")
-            .accessibilityIdentifier("today-plan-card-body")
             .buttonStyle(DZPressablePlainButtonStyle())
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(accessibilityLabel)
+            .accessibilityIdentifier("today-plan-card-body")
 
             if card.showsStartButton {
                 Button("开始训练", action: onStart)
@@ -561,7 +604,18 @@ private struct TodayPlanCardView: View {
         }
         .padding(14)
         .dzCardStyle()
-        .accessibilityIdentifier("today-plan-card")
+    }
+
+    private var accessibilityLabel: String {
+        [
+            "今日计划卡",
+            card.titleText,
+            card.statusText,
+            card.hintText,
+            card.lastCompletionText,
+        ]
+        .compactMap { $0 }
+        .joined(separator: "，")
     }
 }
 

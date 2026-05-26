@@ -2,6 +2,8 @@ import SwiftData
 import SwiftUI
 
 struct TrainingScheduleView: View {
+    @Binding private var path: [AppRoute]
+    private let usesExternalPath: Bool
     @Environment(\.modelContext) private var modelContext
     @Query private var cycles: [TrainingCycle]
     @Query private var slots: [TrainingCycleSlot]
@@ -9,8 +11,19 @@ struct TrainingScheduleView: View {
     @Query private var sessions: [WorkoutSession]
     @Query private var templates: [Template]
     @State private var editorPresentation: TrainingCycleEditorPresentation?
+    @State private var selectedDay: TrainingScheduleDayNavigation?
     @State private var isConfirmingDelete = false
     @State private var errorMessage: String?
+
+    init(path: Binding<[AppRoute]>? = nil) {
+        if let path {
+            _path = path
+            usesExternalPath = true
+        } else {
+            _path = .constant([])
+            usesExternalPath = false
+        }
+    }
 
     private var activeCycle: TrainingCycle? {
         cycles.first
@@ -25,11 +38,13 @@ struct TrainingScheduleView: View {
     }
 
     private var dataVersion: Int {
-        cycles.count
-            + slots.count
-            + overrides.count
-            + sessions.count
-            + templates.reduce(0) { $0 + $1.name.count + ($1.colorHex?.count ?? 0) }
+        trainingScheduleDataVersion(
+            cycles: cycles,
+            slots: slots,
+            overrides: overrides,
+            sessions: sessions,
+            templates: templates
+        )
     }
 
     var body: some View {
@@ -45,7 +60,7 @@ struct TrainingScheduleView: View {
                             )
                         }
 
-                        TrainingScheduleWeekSection(days: week.days)
+                        TrainingScheduleWeekSection(days: week.days, onSelectDay: openDayDetail)
                     } else {
                         TrainingScheduleEmptyState {
                             presentCreateCycle()
@@ -64,6 +79,9 @@ struct TrainingScheduleView: View {
         .accessibilityIdentifier("training-schedule-screen")
         .dzScreenBackground()
         .navigationTitle("训练安排")
+        .navigationDestination(item: $selectedDay) { day in
+            TrainingScheduleDayDetailView(date: day.date, localDateKey: day.localDateKey)
+        }
         .toolbar {
             if activeCycle != nil {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -134,6 +152,14 @@ struct TrainingScheduleView: View {
         editorPresentation = TrainingCycleEditorPresentation(cycleID: activeCycle.persistentModelID)
     }
 
+    private func openDayDetail(_ day: TrainingSchedulePresentation.Day) {
+        if usesExternalPath {
+            path.append(.trainingScheduleDay(date: day.date, localDateKey: day.localDateKey))
+        } else {
+            selectedDay = TrainingScheduleDayNavigation(date: day.date, localDateKey: day.localDateKey)
+        }
+    }
+
     private func deleteActiveCycle() {
         guard let activeCycle else { return }
 
@@ -142,6 +168,15 @@ struct TrainingScheduleView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+}
+
+private struct TrainingScheduleDayNavigation: Hashable, Identifiable {
+    let date: Date
+    let localDateKey: String
+
+    var id: String {
+        localDateKey
     }
 }
 
@@ -185,12 +220,21 @@ private struct TrainingScheduleSummarySection: View {
 
 private struct TrainingScheduleWeekSection: View {
     let days: [TrainingSchedulePresentation.Day]
+    let onSelectDay: (TrainingSchedulePresentation.Day) -> Void
 
     var body: some View {
         DZSection("未来 7 天") {
             VStack(spacing: 0) {
                 ForEach(Array(days.enumerated()), id: \.element.id) { index, day in
-                    TrainingScheduleDayRow(day: day)
+                    Button {
+                        onSelectDay(day)
+                    } label: {
+                        TrainingScheduleDayRow(day: day)
+                    }
+                    .buttonStyle(DZPressablePlainButtonStyle())
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel("\(day.isToday ? "今天" : day.weekdayText) \(day.dateText) \(day.title)")
+                    .accessibilityIdentifier("training-schedule-day-\(day.localDateKey)")
 
                     if index != days.count - 1 {
                         DZDivider()
@@ -239,6 +283,10 @@ private struct TrainingScheduleDayRow: View {
             if let pillText {
                 TrainingScheduleStatusPill(text: pillText, status: day.status, isInvalidPlan: day.isInvalidPlan)
             }
+
+            Image(systemName: "chevron.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(DZColor.fgFaint)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
@@ -250,7 +298,6 @@ private struct TrainingScheduleDayRow: View {
                     .frame(width: 3)
             }
         }
-        .accessibilityIdentifier("training-schedule-day-\(day.localDateKey)")
     }
 }
 
@@ -303,6 +350,428 @@ private struct TrainingScheduleStatusPill: View {
                     )
             }
     }
+}
+
+struct TrainingScheduleDayDetailView: View {
+    let date: Date
+    let localDateKey: String
+
+    @Environment(\.modelContext) private var modelContext
+    @Query private var cycles: [TrainingCycle]
+    @Query private var slots: [TrainingCycleSlot]
+    @Query private var overrides: [TrainingDayOverride]
+    @Query private var sessions: [WorkoutSession]
+    @Query private var templates: [Template]
+    @State private var isShowingTemplatePicker = false
+    @State private var errorMessage: String?
+
+    private var orderedTemplates: [Template] {
+        templates.sorted { lhs, rhs in
+            if lhs.sortIndex != rhs.sortIndex {
+                return lhs.sortIndex < rhs.sortIndex
+            }
+
+            return lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
+        }
+    }
+
+    private var detailResult: Result<TrainingScheduleDayDetailState, Error> {
+        _ = dataVersion
+
+        return Result {
+            guard let cycle = cycles.first else {
+                throw TrainingScheduleDayDetailError.noActiveCycle
+            }
+
+            let plan = try TrainingScheduleEngine.plan(for: date, cycle: cycle, in: modelContext)
+            let status = try TrainingScheduleEngine.completionStatus(for: plan, in: modelContext)
+            let availability = try overrideAvailability(for: date, cycle: cycle)
+
+            return TrainingScheduleDayDetailState(
+                cycle: cycle,
+                plan: plan,
+                status: status,
+                availability: availability
+            )
+        }
+    }
+
+    private var dataVersion: Int {
+        trainingScheduleDataVersion(
+            cycles: cycles,
+            slots: slots,
+            overrides: overrides,
+            sessions: sessions,
+            templates: templates
+        )
+    }
+
+    var body: some View {
+        Group {
+            switch detailResult {
+            case .success(let state):
+                detailContent(state)
+            case .failure(let error):
+                ContentUnavailableView(
+                    "训练日读取失败",
+                    systemImage: "exclamationmark.triangle",
+                    description: Text(error.localizedDescription)
+                )
+            }
+        }
+        .accessibilityIdentifier("training-schedule-day-detail")
+        .dzScreenBackground()
+        .navigationTitle("训练日详情")
+        .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $isShowingTemplatePicker) {
+            TrainingDayTemplatePickerView(
+                templates: orderedTemplates,
+                onSelect: setTemplateOverride
+            )
+        }
+        .alert(
+            "操作失败",
+            isPresented: Binding(
+                get: { errorMessage != nil },
+                set: { isPresented in
+                    if isPresented == false {
+                        errorMessage = nil
+                    }
+                }
+            )
+        ) {
+            Button("好", role: .cancel) {}
+        } message: {
+            Text(errorMessage ?? "")
+        }
+    }
+
+    private func detailContent(_ state: TrainingScheduleDayDetailState) -> some View {
+        let actionsAreAvailable = state.availability == .available
+        let resetIsEnabled = actionsAreAvailable && state.plan.source == .override
+
+        return ScrollView {
+            VStack(alignment: .leading, spacing: DZMetric.sectionSpacing) {
+                DZSection("当前计划") {
+                    VStack(spacing: 0) {
+                        DZInfoRow("日期", value: state.plan.localDateKey)
+                        DZDivider()
+                        DZInfoRow("当前计划", value: titleText(for: state.plan))
+                        DZDivider()
+                        DZInfoRow("来源", value: sourceText(for: state.plan.source))
+                        DZDivider()
+                        DZInfoRow("状态", value: statusText(for: state.status, plan: state.plan))
+                    }
+                }
+
+                DZSection("覆盖操作") {
+                    VStack(alignment: .leading, spacing: DZMetric.space3) {
+                        if let unavailableMessage = state.availability.unavailableMessage {
+                            Text(unavailableMessage)
+                                .font(.caption)
+                                .foregroundStyle(DZColor.ink700)
+                                .lineSpacing(2)
+                                .accessibilityIdentifier("training-day-override-locked-message")
+                        }
+
+                        Button {
+                            isShowingTemplatePicker = true
+                        } label: {
+                            Label("覆盖为其他模板", systemImage: "square.grid.2x2")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(DZSecondaryButtonStyle(fullWidth: true))
+                        .disabled(actionsAreAvailable == false || orderedTemplates.isEmpty)
+                        .accessibilityIdentifier("training-day-override-template-button")
+
+                        Button {
+                            setRestOverride(state.cycle)
+                        } label: {
+                            Label("覆盖为休息日", systemImage: "pause.circle")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(DZSecondaryButtonStyle(fullWidth: true))
+                        .disabled(actionsAreAvailable == false)
+                        .accessibilityIdentifier("training-day-override-rest-button")
+
+                        Button {
+                            resetOverride(state.cycle)
+                        } label: {
+                            Label("重置为周期默认", systemImage: "arrow.counterclockwise")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(DZSecondaryButtonStyle(fullWidth: true))
+                        .disabled(resetIsEnabled == false)
+                        .accessibilityIdentifier("training-day-reset-override-button")
+                    }
+                    .padding(14)
+                }
+            }
+            .padding(DZMetric.contentPadding)
+        }
+        .accessibilityIdentifier("training-schedule-day-detail")
+    }
+
+    private func setTemplateOverride(_ template: Template) {
+        do {
+            try TrainingScheduleEngine.setOverride(
+                for: date,
+                cycle: try activeCycle(),
+                kind: .workout,
+                template: template,
+                now: AppLaunchConfiguration.now(),
+                in: modelContext
+            )
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func setRestOverride(_ cycle: TrainingCycle) {
+        do {
+            try TrainingScheduleEngine.setOverride(
+                for: date,
+                cycle: cycle,
+                kind: .rest,
+                template: nil,
+                now: AppLaunchConfiguration.now(),
+                in: modelContext
+            )
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func resetOverride(_ cycle: TrainingCycle) {
+        do {
+            try TrainingScheduleEngine.resetOverride(
+                for: date,
+                cycle: cycle,
+                now: AppLaunchConfiguration.now(),
+                in: modelContext
+            )
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func activeCycle() throws -> TrainingCycle {
+        guard let cycle = cycles.first else {
+            throw TrainingScheduleDayDetailError.noActiveCycle
+        }
+
+        return cycle
+    }
+
+    private func overrideAvailability(
+        for date: Date,
+        cycle: TrainingCycle
+    ) throws -> TrainingScheduleOverrideAvailability {
+        try TrainingScheduleEngine.overrideAvailability(
+            for: date,
+            cycle: cycle,
+            now: AppLaunchConfiguration.now(),
+            in: modelContext
+        )
+    }
+
+    private func titleText(for plan: TrainingScheduleDayPlan) -> String {
+        if plan.isInvalidPlan {
+            return "计划已失效"
+        }
+
+        if plan.isRestDay {
+            return "休息"
+        }
+
+        return plan.template?.name ?? "计划已失效"
+    }
+
+    private func sourceText(for source: TrainingSchedulePlanSource) -> String {
+        switch source {
+        case .cycle:
+            return "周期默认"
+        case .override:
+            return "手动覆盖"
+        }
+    }
+
+    private func statusText(
+        for status: TrainingScheduleCompletionStatus,
+        plan: TrainingScheduleDayPlan
+    ) -> String {
+        switch status {
+        case .none:
+            return plan.isRestDay ? "无训练记录" : "未完成"
+        case .completed:
+            return "✓ 已完成"
+        case .completedWithNonPlanTemplate:
+            return "✓ 已完成（非计划模板）"
+        case .completedWithDeletedPlanTemplate:
+            return "✓ 已完成（计划模板已删除）"
+        case .unscheduledWorkout:
+            return "计划外训练"
+        }
+    }
+}
+
+private struct TrainingDayTemplatePickerView: View {
+    @Environment(\.dismiss) private var dismiss
+    let templates: [Template]
+    let onSelect: (Template) -> Void
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if templates.isEmpty {
+                    ContentUnavailableView(
+                        "暂无模板",
+                        systemImage: "square.grid.2x2",
+                        description: Text("请先创建训练模板。")
+                    )
+                } else {
+                    List {
+                        ForEach(templates) { template in
+                            Button {
+                                onSelect(template)
+                                dismiss()
+                            } label: {
+                                HStack(spacing: DZMetric.space3) {
+                                    Circle()
+                                        .fill(templateColor(for: template))
+                                        .frame(width: 10, height: 10)
+
+                                    Text(template.name)
+                                        .font(.body.weight(.semibold))
+                                        .foregroundStyle(DZColor.ink900)
+
+                                    Spacer()
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("training-day-template-\(template.name)")
+                        }
+                        .listRowBackground(DZColor.cream50)
+                    }
+                    .listStyle(.plain)
+                    .scrollContentBackground(.hidden)
+                }
+            }
+            .accessibilityIdentifier("training-day-override-template-picker")
+            .dzScreenBackground()
+            .navigationTitle("选择模板")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("取消") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+
+    private func templateColor(for template: Template) -> Color {
+        guard let colorHex = template.colorHex,
+              let color = Color(hexString: colorHex) else {
+            return DZColor.templateEmpty
+        }
+
+        return color
+    }
+}
+
+private struct TrainingScheduleDayDetailState {
+    let cycle: TrainingCycle
+    let plan: TrainingScheduleDayPlan
+    let status: TrainingScheduleCompletionStatus
+    let availability: TrainingScheduleOverrideAvailability
+}
+
+private extension TrainingScheduleOverrideAvailability {
+    var unavailableMessage: String? {
+        switch self {
+        case .available:
+            return nil
+        case .locked(.completedPlan):
+            return "当天已按计划完成训练，覆盖操作不可用"
+        case .locked(.historicalDate):
+            return "历史日期不能覆盖"
+        }
+    }
+}
+
+private enum TrainingScheduleDayDetailError: LocalizedError {
+    case noActiveCycle
+
+    var errorDescription: String? {
+        switch self {
+        case .noActiveCycle:
+            return "当前没有训练周期"
+        }
+    }
+}
+
+private func trainingScheduleDataVersion(
+    cycles: [TrainingCycle],
+    slots: [TrainingCycleSlot],
+    overrides: [TrainingDayOverride],
+    sessions: [WorkoutSession],
+    templates: [Template]
+) -> Int {
+    let cycleVersion = cycles.reduce(0) { partialResult, cycle in
+        partialResult
+            + cycle.id.uuidString.count
+            + Int(cycle.startDate.timeIntervalSince1970)
+            + cycle.timezoneIdentifier.count
+    }
+
+    let slotVersion = slots.reduce(0) { partialResult, slot in
+        partialResult
+            + (slot.cycle?.id.uuidString.count ?? 0)
+            + slot.orderIndex
+            + slot.kind.rawValue.count
+            + slot.templateStableID.count
+            + (slot.template?.stableID.count ?? 0)
+            + (slot.template?.name.count ?? 0)
+            + (slot.template?.colorHex?.count ?? 0)
+    }
+
+    let overrideVersion = overrides.reduce(0) { partialResult, dayOverride in
+        partialResult
+            + (dayOverride.cycle?.id.uuidString.count ?? 0)
+            + dayOverride.localDateKey.count
+            + dayOverride.cycleDateKey.count
+            + dayOverride.kind.rawValue.count
+            + dayOverride.templateStableID.count
+            + (dayOverride.template?.stableID.count ?? 0)
+            + (dayOverride.template?.name.count ?? 0)
+            + (dayOverride.template?.colorHex?.count ?? 0)
+    }
+
+    let sessionVersion = sessions.reduce(0) { partialResult, session in
+        partialResult
+            + session.id.uuidString.count
+            + (session.template?.stableID.count ?? 0)
+            + session.templateNameSnapshot.count
+            + session.templateStableIDSnapshot.count
+            + Int(session.startedAt.timeIntervalSince1970)
+            + Int(session.endedAt?.timeIntervalSince1970 ?? 0)
+    }
+
+    let templateVersion = templates.reduce(0) { partialResult, template in
+        partialResult
+            + template.name.count
+            + template.sortIndex
+            + template.stableID.count
+            + (template.colorHex?.count ?? 0)
+    }
+
+    return cycleVersion
+        + slotVersion
+        + overrideVersion
+        + sessionVersion
+        + templateVersion
 }
 
 private struct TrainingScheduleEmptyState: View {
