@@ -53,7 +53,7 @@ enum WeightDisplay {
     }
 }
 
-enum TrainingPlanEntryKind: String, Codable {
+enum TrainingPlanEntryKind: String, Codable, Hashable {
     case workout
     case rest
 }

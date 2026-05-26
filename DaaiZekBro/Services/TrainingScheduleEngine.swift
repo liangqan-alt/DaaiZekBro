@@ -30,10 +30,12 @@ enum TrainingScheduleEngineError: Error, LocalizedError, Equatable {
 struct TrainingScheduleSlotDraft {
     let kind: TrainingPlanEntryKind
     let template: Template?
+    let templateStableID: String
 
-    init(kind: TrainingPlanEntryKind, template: Template? = nil) {
+    init(kind: TrainingPlanEntryKind, template: Template? = nil, templateStableID: String? = nil) {
         self.kind = kind
         self.template = template
+        self.templateStableID = kind == .workout ? templateStableID ?? template?.stableID ?? "" : ""
     }
 }
 
@@ -100,7 +102,8 @@ enum TrainingScheduleEngine {
                     cycle: cycle,
                     orderIndex: index,
                     kind: slotDraft.kind,
-                    template: slotDraft.kind == .workout ? slotDraft.template : nil
+                    template: slotDraft.kind == .workout ? slotDraft.template : nil,
+                    templateStableID: slotDraft.templateStableID
                 )
             )
         }
@@ -112,6 +115,43 @@ enum TrainingScheduleEngine {
 
     static func activeCycle(in context: ModelContext) throws -> TrainingCycle? {
         try context.fetch(FetchDescriptor<TrainingCycle>()).first
+    }
+
+    static func updateCycle(
+        _ cycle: TrainingCycle,
+        startDate: Date,
+        slots: [TrainingScheduleSlotDraft],
+        in context: ModelContext
+    ) throws {
+        try validate(slots)
+
+        cycle.startDate = startDate
+
+        for slot in try sortedSlots(for: cycle, in: context) {
+            context.delete(slot)
+        }
+
+        for (index, slotDraft) in slots.enumerated() {
+            context.insert(
+                TrainingCycleSlot(
+                    cycle: cycle,
+                    orderIndex: index,
+                    kind: slotDraft.kind,
+                    template: slotDraft.kind == .workout ? slotDraft.template : nil,
+                    templateStableID: slotDraft.templateStableID
+                )
+            )
+        }
+
+        try context.save()
+    }
+
+    static func deleteCycle(
+        _ cycle: TrainingCycle,
+        in context: ModelContext
+    ) throws {
+        context.delete(cycle)
+        try context.save()
     }
 
     static func plan(for date: Date, in context: ModelContext) throws -> TrainingScheduleDayPlan? {
@@ -283,7 +323,9 @@ enum TrainingScheduleEngine {
             throw TrainingScheduleEngineError.allRestSlots
         }
 
-        guard slots.allSatisfy({ $0.kind == .rest || $0.template != nil }) else {
+        guard slots.allSatisfy({ slot in
+            slot.kind == .rest || slot.template != nil || slot.templateStableID.isEmpty == false
+        }) else {
             throw TrainingScheduleEngineError.invalidWorkoutSlotTemplate
         }
     }

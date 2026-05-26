@@ -505,6 +505,185 @@ struct TrainingScheduleEngineTests {
         #expect(try fetchCycles(in: invalidContext).isEmpty)
     }
 
+    @Test func updateCycleReplacesSlotsAndPreservesOverrides() throws {
+        let context = try makeInMemoryContext()
+        let timeZone = try requiredTimeZone("Asia/Shanghai")
+        let fixtures = try makePPLTemplates(in: context)
+        let startDate = try date(2026, 1, 29, 9, 0, 0, timeZone: timeZone)
+        let overrideDate = try date(2026, 1, 31, 12, 0, 0, timeZone: timeZone)
+        let cycle = try TrainingScheduleEngine.createCycle(
+            startDate: startDate,
+            timezoneIdentifier: timeZone.identifier,
+            slots: [
+                TrainingScheduleSlotDraft(kind: .workout, template: fixtures.pushA),
+                TrainingScheduleSlotDraft(kind: .workout, template: fixtures.pullA),
+            ],
+            in: context
+        )
+        _ = try TrainingScheduleEngine.setOverride(
+            for: overrideDate,
+            cycle: cycle,
+            kind: .workout,
+            template: fixtures.legsA,
+            in: context
+        )
+
+        try TrainingScheduleEngine.updateCycle(
+            cycle,
+            startDate: startDate,
+            slots: [
+                TrainingScheduleSlotDraft(kind: .workout, template: fixtures.pullA),
+                TrainingScheduleSlotDraft(kind: .rest),
+                TrainingScheduleSlotDraft(kind: .workout, template: fixtures.pushB),
+            ],
+            in: context
+        )
+
+        let slots = try fetchSlots(in: context).sorted { $0.orderIndex < $1.orderIndex }
+        let jan29Plan = try TrainingScheduleEngine.plan(
+            for: date(2026, 1, 29, 12, 0, 0, timeZone: timeZone),
+            cycle: cycle,
+            in: context
+        )
+        let jan30Plan = try TrainingScheduleEngine.plan(
+            for: date(2026, 1, 30, 12, 0, 0, timeZone: timeZone),
+            cycle: cycle,
+            in: context
+        )
+        let overridePlan = try TrainingScheduleEngine.plan(for: overrideDate, cycle: cycle, in: context)
+        let overrides = try fetchOverrides(in: context)
+
+        #expect(slots.count == 3)
+        #expect(slots.map(\.orderIndex) == [0, 1, 2])
+        #expect(slots.map(\.kind) == [.workout, .rest, .workout])
+        #expect(slots[0].template?.name == "Pull A")
+        #expect(slots[1].template == nil)
+        #expect(slots[2].template?.name == "Push B")
+        #expect(jan29Plan.template?.name == "Pull A")
+        #expect(jan29Plan.source == .cycle)
+        #expect(jan30Plan.isRestDay)
+        #expect(jan30Plan.source == .cycle)
+        #expect(overrides.count == 1)
+        #expect(overrides[0].localDateKey == "2026-01-31")
+        #expect(overridePlan.template?.name == "Legs A")
+        #expect(overridePlan.source == .override)
+    }
+
+    @Test func updateCyclePreservesInvalidSlotStableIDAfterTemplateDeletion() throws {
+        let context = try makeInMemoryContext()
+        let timeZone = try requiredTimeZone("Asia/Shanghai")
+        let fixtures = try makePPLTemplates(in: context)
+        let startDate = try date(2026, 1, 29, 9, 0, 0, timeZone: timeZone)
+        let updatedStartDate = try date(2026, 2, 1, 9, 0, 0, timeZone: timeZone)
+        let cycle = try TrainingScheduleEngine.createCycle(
+            startDate: startDate,
+            timezoneIdentifier: timeZone.identifier,
+            slots: [
+                TrainingScheduleSlotDraft(kind: .workout, template: fixtures.pushA),
+                TrainingScheduleSlotDraft(kind: .workout, template: fixtures.pullA),
+            ],
+            in: context
+        )
+
+        try TemplateLibrary.delete(fixtures.pushA, in: context)
+        let invalidStableID = try #require(try fetchSlots(in: context)
+            .first { $0.template == nil && $0.kind == .workout }?
+            .templateStableID)
+
+        try TrainingScheduleEngine.updateCycle(
+            cycle,
+            startDate: updatedStartDate,
+            slots: [
+                TrainingScheduleSlotDraft(kind: .workout, templateStableID: invalidStableID),
+                TrainingScheduleSlotDraft(kind: .workout, template: fixtures.pullA),
+            ],
+            in: context
+        )
+
+        let slots = try fetchSlots(in: context).sorted { $0.orderIndex < $1.orderIndex }
+        let firstDayPlan = try TrainingScheduleEngine.plan(
+            for: updatedStartDate,
+            cycle: cycle,
+            in: context
+        )
+
+        #expect(slots.count == 2)
+        #expect(slots[0].kind == .workout)
+        #expect(slots[0].template == nil)
+        #expect(slots[0].templateStableID == "template-push-a")
+        #expect(slots[0].isInvalidPlan)
+        #expect(slots[1].template?.name == "Pull A")
+        #expect(firstDayPlan.isInvalidPlan)
+        #expect(firstDayPlan.templateStableID == "template-push-a")
+        #expect(firstDayPlan.source == .cycle)
+    }
+
+    @Test func updateCycleRejectsAllRestSlotsWithoutMutatingExistingCycle() throws {
+        let context = try makeInMemoryContext()
+        let timeZone = try requiredTimeZone("Asia/Shanghai")
+        let fixtures = try makePPLTemplates(in: context)
+        let startDate = try date(2026, 1, 29, 9, 0, 0, timeZone: timeZone)
+        let attemptedStartDate = try date(2026, 2, 1, 9, 0, 0, timeZone: timeZone)
+        let cycle = try TrainingScheduleEngine.createCycle(
+            startDate: startDate,
+            timezoneIdentifier: timeZone.identifier,
+            slots: [TrainingScheduleSlotDraft(kind: .workout, template: fixtures.pushA)],
+            in: context
+        )
+
+        var didRejectAllRestSlots = false
+        do {
+            try TrainingScheduleEngine.updateCycle(
+                cycle,
+                startDate: attemptedStartDate,
+                slots: [
+                    TrainingScheduleSlotDraft(kind: .rest),
+                    TrainingScheduleSlotDraft(kind: .rest),
+                ],
+                in: context
+            )
+        } catch TrainingScheduleEngineError.allRestSlots {
+            didRejectAllRestSlots = true
+        }
+
+        let slots = try fetchSlots(in: context)
+
+        #expect(didRejectAllRestSlots)
+        #expect(cycle.startDate == startDate)
+        #expect(slots.count == 1)
+        #expect(slots[0].kind == .workout)
+        #expect(slots[0].template?.name == "Push A")
+    }
+
+    @Test func deleteCycleClearsCycleSlotsAndOverrides() throws {
+        let context = try makeInMemoryContext()
+        let timeZone = try requiredTimeZone("Asia/Shanghai")
+        let fixtures = try makePPLTemplates(in: context)
+        let startDate = try date(2026, 1, 29, 9, 0, 0, timeZone: timeZone)
+        let cycle = try TrainingScheduleEngine.createCycle(
+            startDate: startDate,
+            timezoneIdentifier: timeZone.identifier,
+            slots: [
+                TrainingScheduleSlotDraft(kind: .workout, template: fixtures.pushA),
+                TrainingScheduleSlotDraft(kind: .rest),
+            ],
+            in: context
+        )
+        _ = try TrainingScheduleEngine.setOverride(
+            for: date(2026, 1, 30, 12, 0, 0, timeZone: timeZone),
+            cycle: cycle,
+            kind: .workout,
+            template: fixtures.pullA,
+            in: context
+        )
+
+        try TrainingScheduleEngine.deleteCycle(cycle, in: context)
+
+        #expect(try fetchCycles(in: context).isEmpty)
+        #expect(try fetchSlots(in: context).isEmpty)
+        #expect(try fetchOverrides(in: context).isEmpty)
+    }
+
     @Test func upgradeStyleFixtureInfersDeletedTemplateCompletionAfterBackfill() throws {
         let context = try makeInMemoryContext()
         let timeZone = try requiredTimeZone("Asia/Shanghai")
@@ -619,6 +798,10 @@ struct TrainingScheduleEngineTests {
 
     private func fetchCycles(in context: ModelContext) throws -> [TrainingCycle] {
         try context.fetch(FetchDescriptor<TrainingCycle>())
+    }
+
+    private func fetchSlots(in context: ModelContext) throws -> [TrainingCycleSlot] {
+        try context.fetch(FetchDescriptor<TrainingCycleSlot>())
     }
 
     private func fetchOverrides(in context: ModelContext) throws -> [TrainingDayOverride] {

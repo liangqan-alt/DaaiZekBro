@@ -28,6 +28,24 @@ enum DZColor {
     static let skull600   = Color(hex: 0x8C2A1E)
     static let rpeLow     = Color(hex: 0xB0C170)
     static let rpeMid     = Color(hex: 0xE5B95C)
+    static let templateRest = Color(hex: 0xB9A78D)
+    static let templateEmpty = Color(hex: 0xBFB4A0)
+    static let templateInvalid = Color(hex: 0x998A78)
+    static let statusNeutral = Color(hex: 0xEAD8B4)
+    static let invalidTint = Color(hex: 0xE9DED0)
+
+    static func templateColor(for style: TrainingSchedulePresentation.ColorStyle) -> Color {
+        switch style {
+        case .template(let hex):
+            return Color(hexString: hex) ?? templateEmpty
+        case .rest:
+            return templateRest
+        case .empty:
+            return templateEmpty
+        case .invalid:
+            return templateInvalid
+        }
+    }
 }
 
 enum DZFont {
@@ -88,6 +106,17 @@ extension Color {
         let green = Double((hex & 0x00FF00) >> 8) / 255
         let blue = Double(hex & 0x0000FF) / 255
         self.init(red: red, green: green, blue: blue)
+    }
+
+    init?(hexString: String) {
+        let trimmedHex = hexString.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
+        guard trimmedHex.count == 6,
+              let value = UInt32(trimmedHex, radix: 16)
+        else {
+            return nil
+        }
+
+        self.init(hex: value)
     }
 }
 

@@ -9,6 +9,36 @@ struct SettingsView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: DZMetric.sectionSpacing) {
+                DZSection("训练", footer: "周期会按起始日期与时区循环推算未来安排。") {
+                    NavigationLink {
+                        TrainingScheduleView()
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "calendar")
+                                .foregroundStyle(DZColor.pump500)
+
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("训练安排")
+                                    .foregroundStyle(DZColor.ink900)
+
+                                Text("配置周期 · 查看未来 7 天")
+                                    .font(.caption)
+                                    .foregroundStyle(DZColor.ink700)
+                            }
+
+                            Spacer()
+
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(DZColor.fgFaint)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("training-schedule-entry")
+                }
+
                 DZSection {
                     NavigationLink {
                         WorkoutHistoryView()
