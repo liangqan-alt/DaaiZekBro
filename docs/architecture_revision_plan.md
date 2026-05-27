@@ -84,6 +84,12 @@
 - session 内 set 查询：旧数据 `exerciseNameSnapshot` 为空时，先按 session 范围缩小候选集，再在小集合内做 `exercise?.name` fallback，不退回无界扫描
 - `lastSet`：跨 session 历史预填语义不变，优化后结果与改造前一致
 
+**本次落地策略：**
+
+- `setsForExercise` 先按 `WorkoutSet.session?.id` 查询候选，再在 session 小集合内沿用 `exerciseNameSnapshot` 优先、空 snapshot 回退 `exercise?.name` 的语义
+- `currentOpenSession` 查询限定 `endedAt == nil`，按 `startedAt` 倒序并限制返回 1 条，异常多个 open session 时取最近启动的
+- `lastSet` 保持 identity 与 name fallback 两个入口分离，先按动作身份或名称 fallback 谓词缩小候选，再按 `completedAt` 倒序分页；`Side?` 继续在分页结果内过滤，避免 SwiftData 可选 enum 谓词的运行时风险
+
 **验收条件：** 上述行为在查询改造前后一致；改造后各入口不做无条件全表 fetch；相关测试覆盖 fallback 路径和多 open session 情况。
 
 ---

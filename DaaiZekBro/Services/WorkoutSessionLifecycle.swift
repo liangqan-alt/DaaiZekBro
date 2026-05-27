@@ -18,13 +18,15 @@ enum WorkoutSessionLifecycleError: Error, LocalizedError, Equatable {
 @MainActor
 enum WorkoutSessionLifecycle {
     static func currentOpenSession(in context: ModelContext) throws -> WorkoutSession? {
-        let sessions = try context.fetch(
-            FetchDescriptor<WorkoutSession>(
-                sortBy: [SortDescriptor(\WorkoutSession.startedAt, order: .reverse)]
-            )
+        var descriptor = FetchDescriptor<WorkoutSession>(
+            predicate: #Predicate<WorkoutSession> { session in
+                session.endedAt == nil
+            },
+            sortBy: [SortDescriptor(\WorkoutSession.startedAt, order: .reverse)]
         )
+        descriptor.fetchLimit = 1
 
-        return sessions.first { $0.endedAt == nil }
+        return try context.fetch(descriptor).first
     }
 
     static func createSession(

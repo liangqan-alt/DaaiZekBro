@@ -5,6 +5,14 @@
 
 ## [Unreleased]
 
+## [V0.26] - 2026-05-28
+
+### 新增
+- 增加 P1-4 查询边界核心测试，覆盖 session 内旧数据 fallback、多 open session 取最近启动，以及跨 session `lastSet` 历史预填等价性。
+
+### 变更
+- 优化训练记录高频查询路径：session 内 set 查询先按 session 缩小范围，当前未结束训练查询改为只取 open session，历史预填查询改为按动作身份或名称 fallback 缩小后分页匹配 side。
+
 ## [V0.25] - 2026-05-28
 
 ### 变更
