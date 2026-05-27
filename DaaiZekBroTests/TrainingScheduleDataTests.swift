@@ -254,26 +254,13 @@ struct TrainingScheduleDataTests {
     }
 
     private func makeContext(storeURL: URL?) throws -> ModelContext {
-        let schema = Schema([
-            Exercise.self,
-            Template.self,
-            TemplateExercise.self,
-            WorkoutSession.self,
-            TrainingCycle.self,
-            TrainingCycleSlot.self,
-            TrainingDayOverride.self,
-            WorkoutSessionExerciseSnapshot.self,
-            WorkoutSet.self,
-        ])
-        let configuration: ModelConfiguration
+        let container: ModelContainer
 
         if let storeURL {
-            configuration = ModelConfiguration(schema: schema, url: storeURL)
+            container = try DaaiZekBroSchema.makeModelContainer(storeURL: storeURL)
         } else {
-            configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+            container = try DaaiZekBroSchema.makeModelContainer(isStoredInMemoryOnly: true)
         }
-
-        let container = try ModelContainer(for: schema, configurations: [configuration])
 
         return ModelContext(container)
     }

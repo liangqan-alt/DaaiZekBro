@@ -1139,17 +1139,7 @@ private struct TrainingCycleSlotDraftState: Identifiable {
         TrainingScheduleView()
     }
     .modelContainer(
-        for: [
-            Exercise.self,
-            Template.self,
-            TemplateExercise.self,
-            WorkoutSession.self,
-            TrainingCycle.self,
-            TrainingCycleSlot.self,
-            TrainingDayOverride.self,
-            WorkoutSessionExerciseSnapshot.self,
-            WorkoutSet.self,
-        ],
+        for: DaaiZekBroSchema.modelTypes,
         inMemory: true
     )
 }

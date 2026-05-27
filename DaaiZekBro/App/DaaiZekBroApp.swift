@@ -14,24 +14,10 @@ struct DaaiZekBroApp: App {
     @StateObject private var notificationRouter = NotificationNavigationRouter()
 
     var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Exercise.self,
-            Template.self,
-            TemplateExercise.self,
-            WorkoutSession.self,
-            TrainingCycle.self,
-            TrainingCycleSlot.self,
-            TrainingDayOverride.self,
-            WorkoutSessionExerciseSnapshot.self,
-            WorkoutSet.self,
-        ])
-        let modelConfiguration = ModelConfiguration(
-            schema: schema,
-            isStoredInMemoryOnly: AppLaunchConfiguration.isUITesting
-        )
-
         do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
+            return try DaaiZekBroSchema.makeModelContainer(
+                isStoredInMemoryOnly: AppLaunchConfiguration.isUITesting
+            )
         } catch {
             fatalError("Could not create ModelContainer: \(error)")
         }

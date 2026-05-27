@@ -5,6 +5,13 @@
 
 ## [Unreleased]
 
+## [V0.23] - 2026-05-28
+
+### 新增
+- 增加架构分级修订方案文档，明确 schema、cascade、导航、identity 等高风险轴的分级处理顺序、验收条件和迁移验证边界。
+- 建立 SwiftData schema 单一来源，生产容器、Preview 容器和测试 helper 共享同一模型清单。
+- 增加 schema 单一来源回归测试，覆盖重复清单扫描、in-memory 容器创建和 file-backed 容器创建。
+
 ## [V0.22] - 2026-05-27
 
 ### 新增

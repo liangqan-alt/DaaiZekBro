@@ -1027,19 +1027,7 @@ struct DaaiZekBroTests {
     }
 
     private func makeInMemoryContext() throws -> ModelContext {
-        let schema = Schema([
-            Exercise.self,
-            Template.self,
-            TemplateExercise.self,
-            WorkoutSession.self,
-            TrainingCycle.self,
-            TrainingCycleSlot.self,
-            TrainingDayOverride.self,
-            WorkoutSessionExerciseSnapshot.self,
-            WorkoutSet.self,
-        ])
-        let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
-        let container = try ModelContainer(for: schema, configurations: [configuration])
+        let container = try DaaiZekBroSchema.makeModelContainer(isStoredInMemoryOnly: true)
 
         return ModelContext(container)
     }
