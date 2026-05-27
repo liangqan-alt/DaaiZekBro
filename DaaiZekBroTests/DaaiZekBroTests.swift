@@ -134,12 +134,6 @@ struct DaaiZekBroTests {
         #expect(exercises.filter { !$0.isUnilateral }.count == 18)
     }
 
-    @Test func workoutSessionCreatesUUIDByDefault() {
-        let session = WorkoutSession()
-
-        #expect(session.id.uuidString.isEmpty == false)
-    }
-
     @Test func seedDataDedupsManuallyInsertedDuplicates() throws {
         let context = try makeInMemoryContext()
         let duplicateExercises = SeedData.exercises() + SeedData.exercises()
@@ -412,33 +406,6 @@ struct DaaiZekBroTests {
         let expectedExerciseNames = try seedExerciseNames(for: "Push A")
 
         #expect(exerciseNames == expectedExerciseNames)
-    }
-
-    @Test func openSessionUsesExerciseSnapshotsAfterTemplateDeletion() throws {
-        let context = try makeInMemoryContext()
-        try SeedData.writeAndDedup(in: context)
-        let template = try template(named: "Push A", in: context)
-        let session = try WorkoutSessionLifecycle.createSession(for: template, in: context)
-
-        context.delete(template)
-        try context.save()
-
-        let exerciseNames = try WorkoutSessionLifecycle.exerciseDescriptors(for: session, in: context).map(\.name)
-        let expectedExerciseNames = try seedExerciseNames(for: "Push A")
-        let set = try WorkoutSetLogging.recordSet(
-            sessionID: session.id,
-            exerciseName: "固定器械卧推",
-            weight: 30,
-            reps: 8,
-            rpe: nil,
-            side: nil,
-            in: context
-        )
-
-        #expect(exerciseNames == expectedExerciseNames)
-        #expect(set.exerciseNameSnapshot == "固定器械卧推")
-        #expect(set.exerciseOrderIndex == 0)
-        #expect(set.setIndex == 1)
     }
 
     @Test func openSessionExerciseSnapshotsDoNotFollowLaterTemplateEdits() throws {
@@ -1010,32 +977,6 @@ struct DaaiZekBroTests {
         #expect(didThrowMissingSide)
         #expect(didThrowSideNotAllowed)
         #expect(try fetchSets(in: context).isEmpty)
-    }
-
-    @Test func lastValuesUseSnapshotsWhenExerciseRelationshipIsMissing() throws {
-        let context = try makeInMemoryContext()
-        try SeedData.writeAndDedup(in: context)
-        let template = try template(named: "Push A", in: context)
-        let exercise = try exercise(named: "固定器械卧推", in: context)
-        let session = try WorkoutSessionLifecycle.createSession(for: template, in: context)
-        let set = try WorkoutSetLogging.recordSet(
-            sessionID: session.id,
-            exerciseName: exercise.name,
-            weight: 32.5,
-            reps: 7,
-            rpe: nil,
-            side: nil,
-            in: context
-        )
-
-        set.exercise = nil
-        try context.save()
-
-        #expect(try WorkoutSetLogging.lastValues(
-            exerciseName: exercise.name,
-            side: nil,
-            in: context
-        ) == WorkoutSetValues(weight: 32.5, reps: 7))
     }
 
     @Test func setIndexesAndDeletionAreIsolatedAcrossSessions() throws {

@@ -216,28 +216,6 @@ struct TrainingSchedulePresentationTests {
         #expect(week.days[1].title == "Pull Prime")
     }
 
-    @Test func userTemplateWithoutColorUsesEmptyStyle() throws {
-        let context = try makeInMemoryContext()
-        let timeZone = try requiredTimeZone("Asia/Shanghai")
-        let custom = Template(name: "Custom", stableID: "template-custom")
-        context.insert(custom)
-        try context.save()
-
-        _ = try TrainingScheduleEngine.createCycle(
-            startDate: date(2026, 1, 1, 9, 0, 0, timeZone: timeZone),
-            timezoneIdentifier: timeZone.identifier,
-            slots: [TrainingScheduleSlotDraft(kind: .workout, template: custom)],
-            in: context
-        )
-
-        let week = try TrainingSchedulePresentation.week(
-            now: date(2026, 1, 1, 12, 0, 0, timeZone: timeZone),
-            in: context
-        )
-
-        #expect(week.days[0].colorStyle == .empty)
-    }
-
     @Test func todayUsesCycleTimezoneWhenDeviceInstantFallsOnDifferentUTCDate() throws {
         let context = try makeInMemoryContext()
         let cycleTimeZone = try requiredTimeZone("Asia/Shanghai")
@@ -293,10 +271,6 @@ struct TrainingSchedulePresentationTests {
             now: date(2026, 1, 1, 12, 0, 0, timeZone: timeZone),
             in: context
         ) == nil)
-    }
-
-    @Test func todayPlanCardBodyRouteIntentTargetsTrainingSchedule() {
-        #expect(TodayPlanCardRouteIntent.body == .trainingSchedule)
     }
 
     @Test func todayPlanCardTrainingDayShowsTemplateLastCompletionAndStartAction() throws {

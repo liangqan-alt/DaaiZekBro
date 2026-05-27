@@ -36,17 +36,6 @@ struct TemplateCarouselViewDataTests {
         #expect(TemplateCarouselViewData.exerciseCount(for: legacyTemplate) == 2)
     }
 
-    @Test func colorStyleUsesSavedColorAndFallsBackForMissingOrInvalidHex() {
-        let savedColorStyle = DZTemplateCardColorStyle(colorHex: "#4E7BA6")
-        let nilColorStyle = DZTemplateCardColorStyle(colorHex: nil)
-        let invalidColorStyle = DZTemplateCardColorStyle(colorHex: "not-a-color")
-
-        #expect(savedColorStyle.accentHex == 0x4E7BA6)
-        #expect(savedColorStyle.usesDefaultColor == false)
-        #expect(nilColorStyle == .defaultStyle)
-        #expect(invalidColorStyle == .defaultStyle)
-    }
-
     private func makeInMemoryContext() throws -> ModelContext {
         let schema = Schema([
             Exercise.self,

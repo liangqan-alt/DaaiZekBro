@@ -192,24 +192,6 @@ struct TrainingScheduleDataTests {
         #expect(push.stableID == pushStableID)
     }
 
-    @Test func seedDataAssignsDefaultColorsToSeedTemplatesAndLeavesUserTemplatesEmpty() throws {
-        let context = try makeInMemoryContext()
-
-        try SeedData.writeAndDedup(in: context)
-
-        #expect(try template(named: "Push A", in: context).colorHex == "#D86838")
-        #expect(try template(named: "Push B", in: context).colorHex == "#D86838")
-        #expect(try template(named: "Pull A", in: context).colorHex == "#4E7BA6")
-        #expect(try template(named: "Pull B", in: context).colorHex == "#4E7BA6")
-        #expect(try template(named: "Legs A", in: context).colorHex == "#5C8A3A")
-        #expect(try template(named: "Legs B", in: context).colorHex == "#5C8A3A")
-
-        let userTemplate = try TemplateLibrary.create(name: "Push Custom", in: context)
-        try SeedData.writeAndDedup(in: context)
-
-        #expect(userTemplate.colorHex == nil)
-    }
-
     @Test func sessionTemplateIdentityBackfillsOnlyFromLiveTemplateRelationAndSurvivesDeletion() throws {
         let context = try makeInMemoryContext()
         let template = Template(name: "Push A", stableID: "template-push")

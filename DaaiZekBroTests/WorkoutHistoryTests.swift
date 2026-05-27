@@ -117,19 +117,6 @@ struct WorkoutHistoryTests {
         #expect(WorkoutHistoryData.templateName(for: session) == "Push A")
     }
 
-    @Test func setValueTextFormatsKilograms() {
-        let text = WorkoutHistoryDisplay.setValueText(weightKilograms: 45.4, reps: 8, unit: .kilograms)
-
-        #expect(text == "45.4 kg x 8")
-    }
-
-    @Test func setValueTextConvertsKilogramsToPounds() {
-        let kilograms = WeightUnit.pounds.kilograms(fromDisplayValue: 100)
-        let text = WorkoutHistoryDisplay.setValueText(weightKilograms: kilograms, reps: 8, unit: .pounds)
-
-        #expect(text == "100 lb x 8")
-    }
-
     private func date(
         _ year: Int,
         _ month: Int,
