@@ -6,6 +6,7 @@ struct TemplateListView: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var templates: [Template]
     @Query private var sessions: [WorkoutSession]
+    @Query private var sets: [WorkoutSet]
     @Query private var cycles: [TrainingCycle]
     @Query private var slots: [TrainingCycleSlot]
     @Query private var overrides: [TrainingDayOverride]
@@ -250,11 +251,17 @@ struct TemplateListView: View {
                 .accessibilityIdentifier("home-recent-history-link")
             }
 
-            HomeEmptyState(
-                title: "完成训练后会在这里显示最近记录",
-                message: nil
-            )
-            .accessibilityIdentifier("home-recent-empty-state")
+            let rows = recentTrainingRows
+
+            if rows.isEmpty {
+                HomeEmptyState(
+                    title: "完成训练后会在这里显示最近记录",
+                    message: nil
+                )
+                .accessibilityIdentifier("home-recent-empty-state")
+            } else {
+                HomeRecentTrainingList(rows: rows)
+            }
         }
     }
 
@@ -264,6 +271,15 @@ struct TemplateListView: View {
 
     private func exerciseCount(for template: Template) -> Int {
         TemplateCarouselViewData.exerciseCount(for: template)
+    }
+
+    private var recentTrainingRows: [WorkoutHistoryRow] {
+        HomeRecentTrainingViewData.rows(
+            sessions: sessions,
+            sets: sets,
+            now: AppLaunchConfiguration.now(),
+            calendar: .current
+        )
     }
 
     private var currentOpenSession: WorkoutSession? {
@@ -578,6 +594,32 @@ enum TemplateCarouselViewData {
     }
 }
 
+enum HomeRecentTrainingViewData {
+    static let rowLimit = 3
+
+    static func rows(
+        sessions: [WorkoutSession],
+        sets: [WorkoutSet],
+        now: Date,
+        calendar: Calendar
+    ) -> [WorkoutHistoryRow] {
+        let historyRows = WorkoutHistoryData.sections(
+            sessions: sessions,
+            sets: sets,
+            now: now,
+            calendar: calendar
+        )
+        .flatMap(\.rows)
+
+        return Array(
+            historyRows
+                .filter { $0.summary.endedAt != nil }
+                .sorted { $0.summary.startedAt > $1.summary.startedAt }
+                .prefix(rowLimit)
+        )
+    }
+}
+
 enum TodayPlanCardRouteIntent {
     static let body = AppRoute.trainingSchedule
 }
@@ -779,6 +821,43 @@ private struct HomeEmptyState: View {
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .dzCardStyle()
+    }
+}
+
+private struct HomeRecentTrainingList: View {
+    let rows: [WorkoutHistoryRow]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(rows.indices, id: \.self) { index in
+                HomeRecentTrainingRow(
+                    row: rows[index],
+                    accessibilityIdentifier: "home-recent-row-\(index)"
+                )
+
+                if index < rows.index(before: rows.endIndex) {
+                    DZDivider()
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .dzCardStyle()
+    }
+}
+
+private struct HomeRecentTrainingRow: View {
+    let row: WorkoutHistoryRow
+    let accessibilityIdentifier: String
+
+    var body: some View {
+        Text(row.title)
+            .font(.body)
+            .foregroundStyle(DZColor.ink900)
+            .lineLimit(2)
+            .accessibilityIdentifier(accessibilityIdentifier)
+            .padding(.horizontal, DZMetric.rowHorizontalPadding)
+            .padding(.vertical, DZMetric.rowVerticalPadding)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
     }
 }
 

@@ -89,6 +89,47 @@ enum UITestFixtures {
                 startedAt: now,
                 timeZone: timeZone
             )
+        case "recent-training-mixed":
+            try createEndedSession(
+                for: pull,
+                startedAt: date(2026, 1, 1, 10, 0, 0, timeZone: timeZone),
+                timeZone: timeZone,
+                in: context
+            )
+            try createEndedSessionWithSet(
+                for: push,
+                startedAt: date(2025, 12, 31, 8, 0, 0, timeZone: timeZone),
+                endedAt: date(2025, 12, 31, 9, 2, 0, timeZone: timeZone),
+                timeZone: timeZone,
+                in: context
+            )
+            try createEndedSessionWithSet(
+                for: pull,
+                startedAt: date(2025, 12, 30, 18, 0, 0, timeZone: timeZone),
+                endedAt: date(2025, 12, 30, 18, 54, 0, timeZone: timeZone),
+                timeZone: timeZone,
+                in: context
+            )
+            try createEndedSessionWithSet(
+                for: try template(named: "Legs A", in: context),
+                startedAt: date(2025, 12, 29, 8, 0, 0, timeZone: timeZone),
+                endedAt: date(2025, 12, 29, 8, 48, 0, timeZone: timeZone),
+                timeZone: timeZone,
+                in: context
+            )
+            try createEndedSessionWithSet(
+                for: push,
+                startedAt: date(2025, 12, 28, 8, 0, 0, timeZone: timeZone),
+                endedAt: date(2025, 12, 28, 8, 45, 0, timeZone: timeZone),
+                timeZone: timeZone,
+                in: context
+            )
+            try createOpenSessionWithSet(
+                for: pull,
+                startedAt: date(2026, 1, 1, 11, 0, 0, timeZone: timeZone),
+                timeZone: timeZone,
+                in: context
+            )
         default:
             throw UITestFixtureError.unknownFixture(name)
         }
@@ -133,6 +174,57 @@ enum UITestFixtures {
             in: context,
             endedAt: startedAt.addingTimeInterval(3_600)
         )
+    }
+
+    private static func createEndedSessionWithSet(
+        for template: Template,
+        startedAt: Date,
+        endedAt: Date,
+        timeZone: TimeZone,
+        in context: ModelContext
+    ) throws {
+        let session = try createOpenSessionWithSet(
+            for: template,
+            startedAt: startedAt,
+            timeZone: timeZone,
+            in: context
+        )
+        try WorkoutSessionLifecycle.end(session, in: context, endedAt: endedAt)
+    }
+
+    @discardableResult
+    private static func createOpenSessionWithSet(
+        for template: Template,
+        startedAt: Date,
+        timeZone: TimeZone,
+        in context: ModelContext
+    ) throws -> WorkoutSession {
+        let session = try WorkoutSessionLifecycle.createSession(
+            for: template,
+            in: context,
+            startedAt: startedAt,
+            timeZone: timeZone
+        )
+        guard let exerciseName = try WorkoutSessionLifecycle
+            .exerciseDescriptors(for: session, in: context)
+            .first?
+            .name
+        else {
+            throw UITestFixtureError.missingExercise(template.name)
+        }
+
+        _ = try WorkoutSetLogging.recordSet(
+            sessionID: session.id,
+            exerciseName: exerciseName,
+            weight: 60,
+            reps: 8,
+            rpe: nil,
+            side: nil,
+            completedAt: startedAt.addingTimeInterval(600),
+            in: context
+        )
+
+        return session
     }
 
     private static func template(
@@ -209,6 +301,7 @@ enum UITestFixtures {
 private enum UITestFixtureError: Error, LocalizedError {
     case unknownFixture(String)
     case missingTemplate(String)
+    case missingExercise(String)
     case missingTimeZone(String)
     case invalidDate
 
@@ -218,6 +311,8 @@ private enum UITestFixtureError: Error, LocalizedError {
             "未知 UI 测试夹具：\(name)"
         case .missingTemplate(let name):
             "UI 测试夹具缺少模板：\(name)"
+        case .missingExercise(let templateName):
+            "UI 测试夹具模板缺少动作：\(templateName)"
         case .missingTimeZone(let identifier):
             "UI 测试夹具缺少时区：\(identifier)"
         case .invalidDate:

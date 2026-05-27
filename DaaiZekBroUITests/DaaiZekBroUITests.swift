@@ -123,6 +123,51 @@ final class DaaiZekBroUITests: XCTestCase {
     }
 
     @MainActor
+    func testHomeRecentTrainingShowsLatestValidCompletedRecords() throws {
+        let app = launchUITestApp(fixture: "recent-training-mixed")
+
+        XCTAssertTrue(homeScreen(in: app).waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForElement(identifier: "home-recent-row-0", in: app).exists)
+        XCTAssertTrue(waitForElement(identifier: "home-recent-row-1", in: app).exists)
+        XCTAssertTrue(waitForElement(identifier: "home-recent-row-2", in: app).exists)
+        XCTAssertFalse(app.descendants(matching: .any)["home-recent-row-3"].firstMatch.exists)
+        XCTAssertFalse(app.descendants(matching: .any)["home-recent-empty-state"].firstMatch.exists)
+        XCTAssertTrue(app.staticTexts["2025-12-31 (三) · Push A · 1组 · 1h 2m"].exists)
+        XCTAssertTrue(app.staticTexts["2025-12-30 (二) · Pull A · 1组 · 54m"].exists)
+        XCTAssertTrue(app.staticTexts["2025-12-29 (一) · Legs A · 1组 · 48m"].exists)
+        XCTAssertFalse(app.staticTexts["2025-12-28 (日) · Push A · 1组 · 45m"].exists)
+        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Pull A (进行中)")).firstMatch.exists)
+        XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "0组")).firstMatch.exists)
+
+        waitForElement(identifier: "home-recent-row-0", in: app).tap()
+
+        XCTAssertTrue(homeScreen(in: app).waitForExistence(timeout: 2))
+        XCTAssertTrue(waitForElement(identifier: "home-recent-history-link", in: app).isHittable)
+        XCTAssertFalse(app.navigationBars["训练历史"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["history-detail-weight-unit-picker"].firstMatch.exists)
+    }
+
+    @MainActor
+    func testHomeAndSettingsHistoryEntriesOpenSameHistoryPage() throws {
+        let homeApp = launchUITestApp(fixture: "recent-training-mixed")
+
+        XCTAssertTrue(homeScreen(in: homeApp).waitForExistence(timeout: 5))
+        waitForElement(identifier: "home-recent-history-link", in: homeApp).tap()
+        XCTAssertTrue(homeApp.navigationBars["训练历史"].waitForExistence(timeout: 5))
+        homeApp.terminate()
+
+        let settingsApp = launchUITestApp(fixture: "recent-training-mixed")
+
+        XCTAssertTrue(homeScreen(in: settingsApp).waitForExistence(timeout: 5))
+        XCTAssertTrue(settingsApp.buttons["设置"].waitForExistence(timeout: 5))
+        settingsApp.buttons["设置"].tap()
+        let settingsHistoryEntry = settingsApp.buttons["workout-history-button"]
+        XCTAssertTrue(settingsHistoryEntry.waitForExistence(timeout: 5))
+        settingsHistoryEntry.tap()
+        XCTAssertTrue(settingsApp.navigationBars["训练历史"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
     func testHomeTemplateEditModeMovesActionsToNavigationBar() throws {
         let app = launchUITestApp(fixture: "today-plan-no-cycle")
 

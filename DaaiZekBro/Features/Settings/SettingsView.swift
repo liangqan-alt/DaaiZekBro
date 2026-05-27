@@ -58,6 +58,7 @@ struct SettingsView: View {
                         }
                         .padding(.horizontal, 14)
                         .padding(.vertical, 12)
+                        .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("workout-history-button")
