@@ -512,45 +512,25 @@ struct TemplateListView: View {
     }
 
     private func resolveConflictByEndingAndCreating() {
-        guard let template = pendingTemplate else {
-            pendingTemplateName = nil
-            return
-        }
-
-        do {
-            if let session = try WorkoutSessionLifecycle.currentOpenSession(in: modelContext) {
-                try WorkoutSessionLifecycle.end(session, in: modelContext)
-                UserNotificationRestScheduler.cancelPendingRestCompletionNotification()
-            }
-
-            let newSession = try WorkoutSessionLifecycle.createSession(
-                for: template,
-                in: modelContext,
-                startedAt: AppLaunchConfiguration.now()
-            )
-            pendingTemplateName = nil
-            path.append(.currentWorkout(sessionID: newSession.id))
-        } catch {
-            errorMessage = error.localizedDescription
-        }
+        resolveConflict(.endCurrentAndCreate)
     }
 
     private func resolveConflictByDiscardingAndCreating() {
+        resolveConflict(.discardCurrentAndCreate)
+    }
+
+    private func resolveConflict(_ choice: WorkoutConflictResolution.Choice) {
         guard let template = pendingTemplate else {
             pendingTemplateName = nil
             return
         }
 
         do {
-            if let session = try WorkoutSessionLifecycle.currentOpenSession(in: modelContext) {
-                try WorkoutSessionLifecycle.discard(session, in: modelContext)
-                UserNotificationRestScheduler.cancelPendingRestCompletionNotification()
-            }
-
-            let newSession = try WorkoutSessionLifecycle.createSession(
+            let newSession = try WorkoutConflictResolution.resolve(
+                choice: choice,
                 for: template,
                 in: modelContext,
-                startedAt: AppLaunchConfiguration.now()
+                resolvedAt: AppLaunchConfiguration.now()
             )
             pendingTemplateName = nil
             path.append(.currentWorkout(sessionID: newSession.id))
