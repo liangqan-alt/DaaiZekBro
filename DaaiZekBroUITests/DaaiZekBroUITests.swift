@@ -23,6 +23,25 @@ final class DaaiZekBroUITests: XCTestCase {
     }
 
     @MainActor
+    func testContainerFailureShowsDiagnosticScreenWithoutHome() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-dz-ui-testing",
+            "-dz-force-container-failure",
+        ]
+        app.launch()
+
+        let failureScreen = app.descendants(matching: .any)["model-container-failure-screen"].firstMatch
+        XCTAssertTrue(failureScreen.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["无法打开本地数据"].exists)
+
+        let diagnostic = app.descendants(matching: .any)["model-container-failure-diagnostic"].firstMatch
+        XCTAssertTrue(diagnostic.waitForExistence(timeout: 5))
+        XCTAssertTrue(diagnostic.label.contains("Forced ModelContainer failure"))
+        XCTAssertFalse(app.descendants(matching: .any)["home-browsing-screen"].firstMatch.exists)
+    }
+
+    @MainActor
     func testSettingsTrainingScheduleEntryNavigatesToSchedulePage() throws {
         let app = XCUIApplication()
         app.launch()

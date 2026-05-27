@@ -5,6 +5,14 @@
 
 ## [Unreleased]
 
+## [V0.24] - 2026-05-28
+
+### 新增
+- 增加 `ModelContainer` 启动失败分支回归测试，并提供 DEBUG 专用 `-dz-force-container-failure` 启动参数用于可重复验证诊断界面。
+
+### 修复
+- SwiftData `ModelContainer` 初始化失败时不再通过 `fatalError` 崩溃，改为展示不依赖 `modelContext` 的可诊断失败界面且不自动擦除本地数据。
+
 ## [V0.23] - 2026-05-28
 
 ### 新增
