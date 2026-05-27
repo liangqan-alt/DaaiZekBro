@@ -18,11 +18,6 @@ struct TemplateListView: View {
     @State private var pendingDeleteTemplateName: String?
     @State private var isShowingDeleteWarning = false
 
-    private let columns = [
-        GridItem(.flexible(), spacing: 10),
-        GridItem(.flexible(), spacing: 10),
-    ]
-
     var body: some View {
         Group {
             if isEditingTemplates {
@@ -208,30 +203,37 @@ struct TemplateListView: View {
                 )
                 .accessibilityIdentifier("home-template-empty-state")
             } else {
-                LazyVGrid(columns: columns, spacing: 10) {
-                    ForEach(orderedTemplates) { template in
-                        DZTemplateCard(
-                            name: template.name,
-                            exerciseCount: exerciseCount(for: template)
-                        ) {
-                            startOrResolveConflict(for: template)
-                        }
-                        .contextMenu {
-                            Button {
-                                presentRenameTemplate(template)
-                            } label: {
-                                Label("重命名", systemImage: "pencil")
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(spacing: 10) {
+                        ForEach(orderedTemplates) { template in
+                            DZTemplateCard(
+                                name: template.name,
+                                exerciseCount: exerciseCount(for: template),
+                                colorHex: template.colorHex
+                            ) {
+                                startOrResolveConflict(for: template)
                             }
+                            .contextMenu {
+                                Button {
+                                    presentRenameTemplate(template)
+                                } label: {
+                                    Label("重命名", systemImage: "pencil")
+                                }
 
-                            Button(role: .destructive) {
-                                requestDelete(template)
-                            } label: {
-                                Label("删除", systemImage: "trash")
+                                Button(role: .destructive) {
+                                    requestDelete(template)
+                                } label: {
+                                    Label("删除", systemImage: "trash")
+                                }
                             }
+                            .accessibilityIdentifier("template-\(template.name)")
                         }
-                        .accessibilityIdentifier("template-\(template.name)")
                     }
+                    .padding(.vertical, 4)
+                    .scrollTargetLayout()
                 }
+                .scrollTargetBehavior(.viewAligned)
+                .accessibilityIdentifier("home-template-carousel")
             }
         }
     }
@@ -257,19 +259,11 @@ struct TemplateListView: View {
     }
 
     private var orderedTemplates: [Template] {
-        templates.sorted { lhs, rhs in
-            if lhs.sortIndex != rhs.sortIndex {
-                return lhs.sortIndex < rhs.sortIndex
-            }
-
-            return lhs.name < rhs.name
-        }
+        TemplateCarouselViewData.orderedTemplates(templates)
     }
 
     private func exerciseCount(for template: Template) -> Int {
-        let linkedExerciseCount = template.templateExercises.filter { $0.exercise != nil }.count
-
-        return linkedExerciseCount == 0 ? template.exercises.count : linkedExerciseCount
+        TemplateCarouselViewData.exerciseCount(for: template)
     }
 
     private var currentOpenSession: WorkoutSession? {
@@ -563,6 +557,24 @@ struct TemplateListView: View {
         let seconds = elapsedSeconds % 60
 
         return String(format: "%02d:%02d", minutes, seconds)
+    }
+}
+
+enum TemplateCarouselViewData {
+    static func orderedTemplates(_ templates: [Template]) -> [Template] {
+        templates.sorted { lhs, rhs in
+            if lhs.sortIndex != rhs.sortIndex {
+                return lhs.sortIndex < rhs.sortIndex
+            }
+
+            return lhs.name < rhs.name
+        }
+    }
+
+    static func exerciseCount(for template: Template) -> Int {
+        let linkedExerciseCount = template.templateExercises.filter { $0.exercise != nil }.count
+
+        return linkedExerciseCount == 0 ? template.exercises.count : linkedExerciseCount
     }
 }
 

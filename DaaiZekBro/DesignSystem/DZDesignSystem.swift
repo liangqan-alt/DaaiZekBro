@@ -344,25 +344,53 @@ struct DZDestructiveButtonStyle: ButtonStyle {
 struct DZTemplateCard: View {
     let name: String
     let exerciseCount: Int
+    let colorHex: String?
     let action: () -> Void
+
+    private var colorStyle: DZTemplateCardColorStyle {
+        DZTemplateCardColorStyle(colorHex: colorHex)
+    }
 
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: DZMetric.space4) {
+                Spacer(minLength: DZMetric.space4)
+
                 Text(name)
-                    .font(DZFont.display(size: 22))
+                    .font(DZFont.display(size: 20))
                     .foregroundStyle(DZColor.ink900)
                     .textCase(.uppercase)
-                    .minimumScaleFactor(0.75)
-                    .lineLimit(1)
+                    .minimumScaleFactor(0.65)
+                    .lineLimit(2)
+                    .padding(.leading, 6)
 
                 Text("\(exerciseCount) 个动作")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(accentTextColor)
+                    .foregroundStyle(DZColor.bronze700)
+                    .padding(.leading, 6)
             }
-            .frame(maxWidth: .infinity, minHeight: 102, alignment: .bottomLeading)
             .padding(DZMetric.templateCardPadding)
-            .background(accentBackground)
+            .frame(width: 152, height: 124, alignment: .bottomLeading)
+            .background {
+                RoundedRectangle(cornerRadius: DZMetric.radius, style: .continuous)
+                    .fill(DZColor.cream100)
+
+                if colorStyle.usesDefaultColor == false {
+                    RoundedRectangle(cornerRadius: DZMetric.radius, style: .continuous)
+                        .fill(colorStyle.accentColor.opacity(0.16))
+                }
+            }
+            .overlay(alignment: .leading) {
+                Rectangle()
+                    .fill(colorStyle.accentColor)
+                    .frame(width: 4)
+            }
+            .overlay(alignment: .topTrailing) {
+                Circle()
+                    .fill(colorStyle.accentColor)
+                    .frame(width: 12, height: 12)
+                    .padding(12)
+            }
             .clipShape(RoundedRectangle(cornerRadius: DZMetric.radius, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: DZMetric.radius, style: .continuous)
@@ -372,29 +400,51 @@ struct DZTemplateCard: View {
         }
         .buttonStyle(DZPressablePlainButtonStyle())
     }
+}
 
-    private var accentBackground: Color {
-        if name.hasPrefix("Legs") {
-            return Color(hex: 0xE8C896)
+struct DZTemplateCardColorStyle: Equatable {
+    static let defaultStyle = DZTemplateCardColorStyle(
+        accentHex: 0xBFB4A0,
+        usesDefaultColor: true
+    )
+
+    let accentHex: UInt32
+    let usesDefaultColor: Bool
+
+    init(colorHex: String?) {
+        guard let accentHex = Self.parseHex(colorHex) else {
+            self = Self.defaultStyle
+            return
         }
 
-        if name.hasPrefix("Pull") {
-            return Color(hex: 0xEAD8B4)
-        }
-
-        return DZColor.cream200
+        self.init(accentHex: accentHex, usesDefaultColor: false)
     }
 
-    private var accentTextColor: Color {
-        if name.hasPrefix("Legs") {
-            return Color(hex: 0x5A3D1A)
+    var accentColor: Color {
+        Color(hex: accentHex)
+    }
+
+    private init(accentHex: UInt32, usesDefaultColor: Bool) {
+        self.accentHex = accentHex
+        self.usesDefaultColor = usesDefaultColor
+    }
+
+    private static func parseHex(_ colorHex: String?) -> UInt32? {
+        guard var trimmedHex = colorHex?.trimmingCharacters(in: .whitespacesAndNewlines),
+              trimmedHex.isEmpty == false
+        else {
+            return nil
         }
 
-        if name.hasPrefix("Pull") {
-            return DZColor.bronze700
+        if trimmedHex.hasPrefix("#") {
+            trimmedHex.removeFirst()
         }
 
-        return DZColor.bronze600
+        guard trimmedHex.count == 6 else {
+            return nil
+        }
+
+        return UInt32(trimmedHex, radix: 16)
     }
 }
 

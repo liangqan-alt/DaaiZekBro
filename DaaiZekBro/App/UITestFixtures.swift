@@ -78,6 +78,17 @@ enum UITestFixtures {
                 startedAt: now,
                 timeZone: timeZone
             )
+        case "templates-empty":
+            try deleteTemplates(except: [], in: context)
+        case "templates-single":
+            try deleteTemplates(except: ["Push A"], in: context)
+        case "template-open-session-no-cycle":
+            _ = try WorkoutSessionLifecycle.createSession(
+                for: push,
+                in: context,
+                startedAt: now,
+                timeZone: timeZone
+            )
         default:
             throw UITestFixtureError.unknownFixture(name)
         }
@@ -134,6 +145,17 @@ enum UITestFixtures {
         }
 
         return template
+    }
+
+    private static func deleteTemplates(
+        except retainedNames: Set<String>,
+        in context: ModelContext
+    ) throws {
+        let templates = try context.fetch(FetchDescriptor<Template>())
+
+        for template in templates where retainedNames.contains(template.name) == false {
+            try TemplateLibrary.delete(template, in: context)
+        }
     }
 
     private static func startOfDay(

@@ -127,6 +127,7 @@ final class DaaiZekBroUITests: XCTestCase {
         let app = launchUITestApp(fixture: "today-plan-no-cycle")
 
         XCTAssertTrue(homeScreen(in: app).waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForElement(identifier: "home-template-carousel", in: app).exists)
         waitForElement(identifier: "home-template-edit-button", in: app).tap()
 
         XCTAssertTrue(waitForElement(identifier: "template-editing-list", in: app).exists)
@@ -138,6 +139,73 @@ final class DaaiZekBroUITests: XCTestCase {
 
         XCTAssertTrue(homeScreen(in: app).waitForExistence(timeout: 5))
         XCTAssertTrue(app.buttons["设置"].exists)
+        XCTAssertTrue(waitForElement(identifier: "home-template-carousel", in: app).exists)
+    }
+
+    @MainActor
+    func testTemplateCarouselShowsCardsAndCanSwipeThroughTemplates() throws {
+        let app = launchUITestApp(fixture: "today-plan-no-cycle")
+
+        let carousel = waitForElement(identifier: "home-template-carousel", in: app)
+        XCTAssertTrue(waitForElement(identifier: "template-Push A", in: app).isHittable)
+
+        let lastSeedTemplate = app.descendants(matching: .any)["template-Legs B"].firstMatch
+        for _ in 0..<4 where lastSeedTemplate.isHittable == false {
+            carousel.swipeLeft()
+        }
+
+        XCTAssertTrue(lastSeedTemplate.waitForExistence(timeout: 2))
+        XCTAssertTrue(lastSeedTemplate.isHittable)
+    }
+
+    @MainActor
+    func testTemplateCarouselCardStartsWorkout() throws {
+        let app = launchUITestApp(fixture: "today-plan-no-cycle")
+
+        waitForElement(identifier: "template-Push A", in: app).tap()
+
+        XCTAssertTrue(currentWorkoutScreen(in: app).waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    func testDeletingOnlyTemplateShowsEmptyStateWithoutCarousel() throws {
+        let app = launchUITestApp(fixture: "templates-single")
+
+        let onlyTemplate = waitForElement(identifier: "template-Push A", in: app)
+        onlyTemplate.press(forDuration: 1)
+        XCTAssertTrue(app.buttons["删除"].waitForExistence(timeout: 5))
+        app.buttons["删除"].tap()
+
+        XCTAssertTrue(waitForElement(identifier: "home-template-empty-state", in: app).exists)
+        XCTAssertFalse(app.descendants(matching: .any)["home-template-carousel"].firstMatch.exists)
+    }
+
+    @MainActor
+    func testCreatingTemplateFromEmptyStateReturnsToEditMode() throws {
+        let app = launchUITestApp(fixture: "templates-empty")
+
+        XCTAssertTrue(waitForElement(identifier: "home-template-empty-state", in: app).exists)
+        XCTAssertFalse(app.descendants(matching: .any)["home-template-carousel"].firstMatch.exists)
+
+        waitForElement(identifier: "home-template-edit-button", in: app).tap()
+        waitForElement(identifier: "template-add-button", in: app).tap()
+
+        let nameField = app.textFields["模板名称"]
+        XCTAssertTrue(nameField.waitForExistence(timeout: 5))
+        nameField.tap()
+        nameField.typeText("Custom Upper")
+        app.buttons["保存"].tap()
+
+        XCTAssertTrue(waitForElement(identifier: "template-editing-list", in: app).exists)
+        XCTAssertTrue(waitForElement(identifier: "template-edit-Custom Upper", in: app).exists)
+    }
+
+    @MainActor
+    func testTemplateConflictDialogOptionsRouteCorrectly() throws {
+        assertTemplateConflictChoice("取消", expectedWorkoutName: nil)
+        assertTemplateConflictChoice("继续当前训练", expectedWorkoutName: "Push A")
+        assertTemplateConflictChoice("结束当前并新建", expectedWorkoutName: "Pull A")
+        assertTemplateConflictChoice("丢弃当前并新建", expectedWorkoutName: "Pull A")
     }
 
     @MainActor
@@ -270,6 +338,96 @@ final class DaaiZekBroUITests: XCTestCase {
 
     private func homeScreen(in app: XCUIApplication) -> XCUIElement {
         app.descendants(matching: .any)["home-browsing-screen"].firstMatch
+    }
+
+    private func currentWorkoutScreen(in app: XCUIApplication) -> XCUIElement {
+        app.buttons["结束训练"].firstMatch
+    }
+
+    @MainActor
+    private func assertCurrentWorkout(
+        named templateName: String,
+        in app: XCUIApplication,
+        file: StaticString,
+        line: UInt
+    ) {
+        XCTAssertTrue(currentWorkoutScreen(in: app).waitForExistence(timeout: 5), file: file, line: line)
+
+        if app.navigationBars[templateName].waitForExistence(timeout: 1) {
+            return
+        }
+
+        XCTAssertTrue(app.staticTexts[templateName].waitForExistence(timeout: 1), file: file, line: line)
+    }
+
+    @MainActor
+    private func assertTemplateConflictChoice(
+        _ buttonTitle: String,
+        expectedWorkoutName: String?,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let app = launchUITestApp(fixture: "template-open-session-no-cycle")
+        tapTemplate(named: "Pull A", in: app, file: file, line: line)
+
+        XCTAssertTrue(
+            app.staticTexts["已有未结束的训练"].waitForExistence(timeout: 5),
+            file: file,
+            line: line
+        )
+        if buttonTitle == "取消" {
+            dismissTemplateConflictDialog(in: app, file: file, line: line)
+        } else {
+            XCTAssertTrue(app.buttons[buttonTitle].waitForExistence(timeout: 5), file: file, line: line)
+            app.buttons[buttonTitle].tap()
+        }
+
+        if let expectedWorkoutName {
+            assertCurrentWorkout(named: expectedWorkoutName, in: app, file: file, line: line)
+        } else {
+            XCTAssertTrue(homeScreen(in: app).waitForExistence(timeout: 5), file: file, line: line)
+            XCTAssertFalse(currentWorkoutScreen(in: app).waitForExistence(timeout: 1), file: file, line: line)
+        }
+
+        app.terminate()
+    }
+
+    @MainActor
+    private func tapTemplate(
+        named templateName: String,
+        in app: XCUIApplication,
+        file: StaticString,
+        line: UInt
+    ) {
+        let template = app.descendants(matching: .any)["template-\(templateName)"].firstMatch
+        XCTAssertTrue(template.waitForExistence(timeout: 5), file: file, line: line)
+
+        if template.isHittable == false {
+            let carousel = waitForElement(identifier: "home-template-carousel", in: app, file: file, line: line)
+            for _ in 0..<4 where template.isHittable == false {
+                carousel.swipeLeft()
+            }
+        }
+
+        XCTAssertTrue(template.isHittable, file: file, line: line)
+        template.tap()
+    }
+
+    @MainActor
+    private func dismissTemplateConflictDialog(
+        in app: XCUIApplication,
+        file: StaticString,
+        line: UInt
+    ) {
+        let cancelButton = app.buttons["取消"].firstMatch
+        if cancelButton.waitForExistence(timeout: 1) {
+            cancelButton.tap()
+            return
+        }
+
+        let dismissRegion = app.descendants(matching: .any)["PopoverDismissRegion"].firstMatch
+        XCTAssertTrue(dismissRegion.waitForExistence(timeout: 5), file: file, line: line)
+        dismissRegion.tap()
     }
 
     private func openTodayScheduleDayDetail(in app: XCUIApplication) {
