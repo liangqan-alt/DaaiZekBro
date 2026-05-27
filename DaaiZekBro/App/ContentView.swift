@@ -42,6 +42,8 @@ struct ContentView: View {
                     TrainingScheduleView(path: $path)
                 case .trainingScheduleDay(let date, let localDateKey):
                     TrainingScheduleDayDetailView(date: date, localDateKey: localDateKey)
+                case .workoutHistory:
+                    WorkoutHistoryView()
                 case .settings:
                     SettingsView()
                 }

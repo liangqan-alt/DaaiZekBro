@@ -32,7 +32,8 @@ struct TemplateListView: View {
             }
         }
         .dzScreenBackground()
-        .navigationTitle("训练模板")
+        .navigationTitle("")
+        .navigationBarTitleDisplayMode(.inline)
         .navigationDestination(isPresented: $isShowingNameEditor) {
             TemplateNameEditorView(templateID: editingTemplateID)
         }
@@ -42,15 +43,6 @@ struct TemplateListView: View {
             }
         }
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
-                Image("daaizeibro-logo")
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: 32, height: 32)
-                    .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-                    .accessibilityHidden(true)
-            }
-
             ToolbarItemGroup(placement: .topBarTrailing) {
                 if isEditingTemplates {
                     Button {
@@ -67,12 +59,6 @@ struct TemplateListView: View {
                         }
                     }
                 } else {
-                    Button("编辑") {
-                        withAnimation {
-                            isEditingTemplates = true
-                        }
-                    }
-
                     NavigationLink(value: AppRoute.settings) {
                         Image(systemName: "gearshape")
                     }
@@ -145,27 +131,83 @@ struct TemplateListView: View {
     private var browsingContent: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: DZMetric.sectionSpacing) {
-                if let currentOpenSession {
-                    continueButton(for: currentOpenSession)
-                } else {
-                    switch todayPlanCardResult {
-                    case .success(let card?):
-                        TodayPlanCardView(
-                            card: card,
-                            onOpenSchedule: openTrainingSchedule,
-                            onStart: {
-                                guard let template = card.startTemplate else { return }
+                todayPlanSection
+                templateSection
+                recentTrainingSection
+            }
+            .padding(DZMetric.contentPadding)
+        }
+        .accessibilityIdentifier("home-browsing-screen")
+    }
 
-                                startOrResolveConflict(for: template)
-                            }
-                        )
-                    case .success(nil):
-                        EmptyView()
-                    case .failure(let error):
-                        TodayPlanErrorCard(errorMessage: error.localizedDescription)
+    private var editingContent: some View {
+        List {
+            ForEach(orderedTemplates) { template in
+                Button {
+                    path.append(.templateEdit(templateID: template.persistentModelID))
+                } label: {
+                    TemplateEditRow(
+                        name: template.name,
+                        exerciseCount: exerciseCount(for: template)
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("template-edit-\(template.name)")
+            }
+            .onMove(perform: moveTemplates)
+            .onDelete(perform: deleteTemplates)
+        }
+        .environment(\.editMode, .constant(.active))
+        .scrollContentBackground(.hidden)
+        .listStyle(.plain)
+        .accessibilityIdentifier("template-editing-list")
+    }
+
+    @ViewBuilder
+    private var todayPlanSection: some View {
+        if let currentOpenSession {
+            continueButton(for: currentOpenSession)
+        } else {
+            switch todayPlanCardResult {
+            case .success(let card?):
+                TodayPlanCardView(
+                    card: card,
+                    onOpenSchedule: openTrainingSchedule,
+                    onStart: {
+                        guard let template = card.startTemplate else { return }
+
+                        startOrResolveConflict(for: template)
+                    }
+                )
+            case .success(nil):
+                EmptyView()
+            case .failure(let error):
+                TodayPlanErrorCard(errorMessage: error.localizedDescription)
+            }
+        }
+    }
+
+    private var templateSection: some View {
+        VStack(alignment: .leading, spacing: DZMetric.space2) {
+            HomeSectionHeader(title: "训练模板") {
+                Button("编辑") {
+                    withAnimation {
+                        isEditingTemplates = true
                     }
                 }
+                .font(.body.weight(.medium))
+                .foregroundStyle(DZColor.pump500)
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("home-template-edit-button")
+            }
 
+            if orderedTemplates.isEmpty {
+                HomeEmptyState(
+                    title: "还没有训练模板",
+                    message: "点击「编辑」→「+」创建"
+                )
+                .accessibilityIdentifier("home-template-empty-state")
+            } else {
                 LazyVGrid(columns: columns, spacing: 10) {
                     ForEach(orderedTemplates) { template in
                         DZTemplateCard(
@@ -191,30 +233,27 @@ struct TemplateListView: View {
                     }
                 }
             }
-            .padding(DZMetric.contentPadding)
         }
     }
 
-    private var editingContent: some View {
-        List {
-            ForEach(orderedTemplates) { template in
-                Button {
-                    path.append(.templateEdit(templateID: template.persistentModelID))
-                } label: {
-                    TemplateEditRow(
-                        name: template.name,
-                        exerciseCount: exerciseCount(for: template)
-                    )
+    private var recentTrainingSection: some View {
+        VStack(alignment: .leading, spacing: DZMetric.space2) {
+            HomeSectionHeader(title: "最近训练") {
+                Button("全部 →") {
+                    path.append(.workoutHistory)
                 }
+                .font(.body.weight(.medium))
+                .foregroundStyle(DZColor.pump500)
                 .buttonStyle(.plain)
-                .accessibilityIdentifier("template-edit-\(template.name)")
+                .accessibilityIdentifier("home-recent-history-link")
             }
-            .onMove(perform: moveTemplates)
-            .onDelete(perform: deleteTemplates)
+
+            HomeEmptyState(
+                title: "完成训练后会在这里显示最近记录",
+                message: nil
+            )
+            .accessibilityIdentifier("home-recent-empty-state")
         }
-        .environment(\.editMode, .constant(.active))
-        .scrollContentBackground(.hidden)
-        .listStyle(.plain)
     }
 
     private var orderedTemplates: [Template] {
@@ -679,6 +718,55 @@ private struct TodayPlanErrorCard: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .dzCardStyle()
             .accessibilityIdentifier("today-plan-error-card")
+    }
+}
+
+private struct HomeSectionHeader<Action: View>: View {
+    let title: String
+    private let action: Action
+
+    init(
+        title: String,
+        @ViewBuilder action: () -> Action
+    ) {
+        self.title = title
+        self.action = action()
+    }
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(title)
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(DZColor.ink900)
+
+            Spacer(minLength: DZMetric.space3)
+
+            action
+        }
+        .padding(.horizontal, DZMetric.sectionHeaderPadding)
+    }
+}
+
+private struct HomeEmptyState: View {
+    let title: String
+    let message: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DZMetric.space1) {
+            Text(title)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(DZColor.ink900)
+
+            if let message {
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(DZColor.ink700)
+                    .lineSpacing(2)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .dzCardStyle()
     }
 }
 

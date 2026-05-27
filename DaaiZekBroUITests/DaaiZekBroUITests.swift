@@ -105,6 +105,42 @@ final class DaaiZekBroUITests: XCTestCase {
     }
 
     @MainActor
+    func testHomeBrowseModeShowsSliceOneSectionsAndHistoryEntry() throws {
+        let app = launchUITestApp(fixture: "today-plan-ready")
+
+        XCTAssertTrue(homeScreen(in: app).waitForExistence(timeout: 5))
+        XCTAssertTrue(todayPlanCardBody(in: app).exists)
+        XCTAssertTrue(app.staticTexts["训练模板"].exists)
+        XCTAssertTrue(waitForElement(identifier: "home-template-edit-button", in: app).exists)
+        XCTAssertTrue(app.staticTexts["最近训练"].exists)
+        XCTAssertTrue(waitForElement(identifier: "home-recent-empty-state", in: app).exists)
+        XCTAssertTrue(app.buttons["设置"].exists)
+        XCTAssertFalse(app.navigationBars["训练模板"].exists)
+
+        waitForElement(identifier: "home-recent-history-link", in: app).tap()
+
+        XCTAssertTrue(app.navigationBars["训练历史"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    func testHomeTemplateEditModeMovesActionsToNavigationBar() throws {
+        let app = launchUITestApp(fixture: "today-plan-no-cycle")
+
+        XCTAssertTrue(homeScreen(in: app).waitForExistence(timeout: 5))
+        waitForElement(identifier: "home-template-edit-button", in: app).tap()
+
+        XCTAssertTrue(waitForElement(identifier: "template-editing-list", in: app).exists)
+        XCTAssertTrue(app.buttons["template-add-button"].exists)
+        XCTAssertTrue(app.buttons["完成"].exists)
+        XCTAssertFalse(app.buttons["设置"].exists)
+
+        app.buttons["完成"].tap()
+
+        XCTAssertTrue(homeScreen(in: app).waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["设置"].exists)
+    }
+
+    @MainActor
     func testTrainingScheduleDayDetailOverrideSyncsHomeAndSchedule() throws {
         let app = launchUITestApp(fixture: "training-day-override-ready")
 
@@ -232,6 +268,10 @@ final class DaaiZekBroUITests: XCTestCase {
         return app.buttons["开始训练"].firstMatch
     }
 
+    private func homeScreen(in app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any)["home-browsing-screen"].firstMatch
+    }
+
     private func openTodayScheduleDayDetail(in app: XCUIApplication) {
         if app.scrollViews["training-schedule-screen"].exists == false {
             openTrainingSchedule(in: app)
@@ -267,26 +307,49 @@ final class DaaiZekBroUITests: XCTestCase {
         waitForElement(identifier: "training-schedule-entry", in: app).tap()
     }
 
-    private func returnHome(in app: XCUIApplication) {
-        for _ in 0..<4 where app.navigationBars["训练模板"].exists == false {
-            tapBackButton(in: app)
+    private func returnHome(
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        if homeScreen(in: app).waitForExistence(timeout: 1) {
+            return
         }
 
-        XCTAssertTrue(app.navigationBars["训练模板"].waitForExistence(timeout: 5))
+        for _ in 0..<4 {
+            tapBackButton(in: app, file: file, line: line)
+            if homeScreen(in: app).waitForExistence(timeout: 2) {
+                return
+            }
+        }
+
+        XCTAssertTrue(homeScreen(in: app).waitForExistence(timeout: 5), file: file, line: line)
     }
 
-    private func returnToTrainingSchedule(in app: XCUIApplication) {
+    private func returnToTrainingSchedule(
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
         if app.descendants(matching: .any)["training-schedule-day-detail"].firstMatch.exists {
-            tapBackButton(in: app)
+            tapBackButton(in: app, file: file, line: line)
         }
 
-        XCTAssertTrue(app.scrollViews["training-schedule-screen"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.scrollViews["training-schedule-screen"].waitForExistence(timeout: 5), file: file, line: line)
     }
 
-    private func tapBackButton(in app: XCUIApplication) {
-        let firstBackButton = app.navigationBars.buttons.element(boundBy: 0)
-        XCTAssertTrue(firstBackButton.waitForExistence(timeout: 5))
-        firstBackButton.tap()
+    private func tapBackButton(
+        in app: XCUIApplication,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let screenMidX = app.frame.midX
+        let backButton = app.navigationBars.buttons.allElementsBoundByIndex.first { button in
+            button.exists && button.isHittable && button.frame.midX < screenMidX
+        }
+
+        XCTAssertNotNil(backButton, "Expected a left-side navigation back button", file: file, line: line)
+        backButton?.tap()
     }
 
     @discardableResult

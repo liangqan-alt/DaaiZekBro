@@ -7,5 +7,6 @@ enum AppRoute: Hashable {
     case templateEdit(templateID: PersistentIdentifier)
     case trainingSchedule
     case trainingScheduleDay(date: Date, localDateKey: String)
+    case workoutHistory
     case settings
 }
