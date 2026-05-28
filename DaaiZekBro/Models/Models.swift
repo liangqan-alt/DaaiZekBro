@@ -229,6 +229,18 @@ final class TrainingDayOverride {
         "\(cycleID.uuidString)|\(localDateKey)"
     }
 
+    @MainActor
+    static func existing(cycleDateKey targetKey: String, in context: ModelContext) throws -> TrainingDayOverride? {
+        var descriptor = FetchDescriptor<TrainingDayOverride>(
+            predicate: #Predicate<TrainingDayOverride> { dayOverride in
+                dayOverride.cycleDateKey == targetKey
+            }
+        )
+        descriptor.fetchLimit = 1
+
+        return try context.fetch(descriptor).first
+    }
+
     var isRestDay: Bool {
         kind == .rest
     }
@@ -247,9 +259,8 @@ final class TrainingDayOverride {
         in context: ModelContext
     ) throws -> TrainingDayOverride {
         let cycleDateKey = TrainingDayOverride.cycleDateKey(cycleID: cycle.id, localDateKey: localDateKey)
-        let existingOverrides = try context.fetch(FetchDescriptor<TrainingDayOverride>())
 
-        if let existingOverride = existingOverrides.first(where: { $0.cycleDateKey == cycleDateKey }) {
+        if let existingOverride = try existing(cycleDateKey: cycleDateKey, in: context) {
             existingOverride.cycle = cycle
             existingOverride.localDateKey = localDateKey
             existingOverride.kind = kind

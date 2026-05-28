@@ -144,6 +144,13 @@ struct TrainingScheduleDataTests {
         context.insert(cycle)
         try context.save()
 
+        let neighboringOverride = try TrainingDayOverride.upsert(
+            cycle: cycle,
+            localDateKey: "2026-01-04",
+            kind: .workout,
+            template: push,
+            in: context
+        )
         let firstOverride = try TrainingDayOverride.upsert(
             cycle: cycle,
             localDateKey: "2026-01-03",
@@ -159,12 +166,20 @@ struct TrainingScheduleDataTests {
             in: context
         )
         let overrides = try fetchOverrides(in: context)
+        let targetKey = TrainingDayOverride.cycleDateKey(
+            cycleID: cycle.id,
+            localDateKey: "2026-01-03"
+        )
 
         #expect(firstOverride.persistentModelID == secondOverride.persistentModelID)
-        #expect(overrides.count == 1)
-        #expect(overrides[0].localDateKey == "2026-01-03")
-        #expect(overrides[0].template?.name == "Pull A")
-        #expect(overrides[0].templateStableID == "template-pull")
+        #expect(overrides.count == 2)
+        #expect(overrides.filter { $0.cycleDateKey == targetKey }.count == 1)
+        #expect(overrides.contains { $0.persistentModelID == neighboringOverride.persistentModelID })
+
+        let targetOverride = try #require(overrides.first { $0.cycleDateKey == targetKey })
+        #expect(targetOverride.localDateKey == "2026-01-03")
+        #expect(targetOverride.template?.name == "Pull A")
+        #expect(targetOverride.templateStableID == "template-pull")
     }
 
     @Test func seedDataBackfillsTemplateStableIDsAndPreservesThem() throws {

@@ -5,6 +5,14 @@
 
 ## [Unreleased]
 
+## [V0.27] - 2026-05-28
+
+### 新增
+- 增加 P2-1 单日覆盖查询边界核心测试，覆盖重复 `cycleDateKey` 不新增记录、upsert 更新既有记录，以及 reset 只删除目标覆盖记录。
+
+### 变更
+- `TrainingDayOverride` 单日覆盖读取、upsert 和 reset 改为按唯一 `cycleDateKey` 精确查询，避免全表扫描后内存匹配，并保持覆盖语义不变。
+
 ## [V0.26] - 2026-05-28
 
 ### 新增

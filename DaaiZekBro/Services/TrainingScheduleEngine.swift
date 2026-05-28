@@ -200,9 +200,8 @@ enum TrainingScheduleEngine {
     ) throws -> TrainingScheduleDayPlan {
         let localDateKey = try localDateKey(for: date, timezoneIdentifier: cycle.timezoneIdentifier)
         let overrideKey = TrainingDayOverride.cycleDateKey(cycleID: cycle.id, localDateKey: localDateKey)
-        let overrides = try context.fetch(FetchDescriptor<TrainingDayOverride>())
 
-        if let dayOverride = overrides.first(where: { $0.cycleDateKey == overrideKey }) {
+        if let dayOverride = try TrainingDayOverride.existing(cycleDateKey: overrideKey, in: context) {
             return dayPlan(
                 localDateKey: localDateKey,
                 timezoneIdentifier: cycle.timezoneIdentifier,
@@ -277,9 +276,8 @@ enum TrainingScheduleEngine {
 
         let localDateKey = try localDateKey(for: date, timezoneIdentifier: cycle.timezoneIdentifier)
         let overrideKey = TrainingDayOverride.cycleDateKey(cycleID: cycle.id, localDateKey: localDateKey)
-        let overrides = try context.fetch(FetchDescriptor<TrainingDayOverride>())
 
-        for dayOverride in overrides where dayOverride.cycleDateKey == overrideKey {
+        if let dayOverride = try TrainingDayOverride.existing(cycleDateKey: overrideKey, in: context) {
             context.delete(dayOverride)
         }
 
