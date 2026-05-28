@@ -18,6 +18,13 @@
 - 副作用依赖（存储、网络、时间、UUID、日志、分析）应可替换；在不破坏现有风格时优先使用构造或环境注入。
 - 新的大功能优先按 feature 组织；`Core/`、`Shared/` 仅在已有或明确引入时使用。
 
+## 架构回归护栏
+- 除非任务明确要求重构 schema 来源，SwiftData schema/model list 应保持单一来源；不要在 App、Preview 或测试中重复内联模型清单。
+- App 启动和 `ModelContainer` 初始化失败必须保留可诊断的失败路径；不要用 `fatalError`、静默 fallback 或自动擦除本地数据代替错误处理。
+- SwiftUI View 可以保留展示查询和简单 UI 驱动写入；复杂业务事务、长事务、通知取消、导入导出和跨对象规则应放在可测试边界。
+- 修改训练记录、open session、历史预填或旧数据 fallback 查询时，避免在生产高频路径重新引入无界全表扫描；受影响语义需运行或补充回归测试。
+- 若任务触及 schema、migration、cascade、导航 identity 或数据删除规则，先查 `docs/architecture_revision_plan.md` 和 `CHANGELOG.md`，并说明兼容性与验证结果。
+
 ## 并发、错误与验证
 - 新异步代码优先使用 Swift Concurrency；UI 可观察状态更新必须 MainActor-safe。
 - 避免无清晰生命周期、错误处理和取消行为的 fire-and-forget `Task`。
