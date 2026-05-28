@@ -30,21 +30,17 @@ struct TrainingScheduleView: View {
     }
 
     private var weekResult: Result<TrainingSchedulePresentation.Week, Error> {
-        _ = dataVersion
-
-        return Result {
-            try TrainingSchedulePresentation.week(now: AppLaunchConfiguration.now(), in: modelContext)
-        }
-    }
-
-    private var dataVersion: Int {
-        trainingScheduleDataVersion(
+        let data = TrainingScheduleDataSnapshot(
             cycles: cycles,
             slots: slots,
             overrides: overrides,
             sessions: sessions,
             templates: templates
         )
+
+        return Result {
+            try TrainingSchedulePresentation.week(now: AppLaunchConfiguration.now(), data: data)
+        }
     }
 
     var body: some View {
@@ -376,16 +372,26 @@ struct TrainingScheduleDayDetailView: View {
     }
 
     private var detailResult: Result<TrainingScheduleDayDetailState, Error> {
-        _ = dataVersion
+        let data = TrainingScheduleDataSnapshot(
+            cycles: cycles,
+            slots: slots,
+            overrides: overrides,
+            sessions: sessions,
+            templates: templates
+        )
 
         return Result {
-            guard let cycle = cycles.first else {
+            guard let cycle = data.activeCycle else {
                 throw TrainingScheduleDayDetailError.noActiveCycle
             }
 
-            let plan = try TrainingScheduleEngine.plan(for: date, cycle: cycle, in: modelContext)
-            let status = try TrainingScheduleEngine.completionStatus(for: plan, in: modelContext)
-            let availability = try overrideAvailability(for: date, cycle: cycle)
+            let plan = try data.plan(for: date, cycle: cycle)
+            let status = try data.completionStatus(for: plan)
+            let availability = try data.overrideAvailability(
+                for: date,
+                cycle: cycle,
+                now: AppLaunchConfiguration.now()
+            )
 
             return TrainingScheduleDayDetailState(
                 cycle: cycle,
@@ -394,16 +400,6 @@ struct TrainingScheduleDayDetailView: View {
                 availability: availability
             )
         }
-    }
-
-    private var dataVersion: Int {
-        trainingScheduleDataVersion(
-            cycles: cycles,
-            slots: slots,
-            overrides: overrides,
-            sessions: sessions,
-            templates: templates
-        )
     }
 
     var body: some View {
@@ -563,18 +559,6 @@ struct TrainingScheduleDayDetailView: View {
         return cycle
     }
 
-    private func overrideAvailability(
-        for date: Date,
-        cycle: TrainingCycle
-    ) throws -> TrainingScheduleOverrideAvailability {
-        try TrainingScheduleEngine.overrideAvailability(
-            for: date,
-            cycle: cycle,
-            now: AppLaunchConfiguration.now(),
-            in: modelContext
-        )
-    }
-
     private func titleText(for plan: TrainingScheduleDayPlan) -> String {
         if plan.isInvalidPlan {
             return "计划已失效"
@@ -710,68 +694,6 @@ private enum TrainingScheduleDayDetailError: LocalizedError {
             return "当前没有训练周期"
         }
     }
-}
-
-private func trainingScheduleDataVersion(
-    cycles: [TrainingCycle],
-    slots: [TrainingCycleSlot],
-    overrides: [TrainingDayOverride],
-    sessions: [WorkoutSession],
-    templates: [Template]
-) -> Int {
-    let cycleVersion = cycles.reduce(0) { partialResult, cycle in
-        partialResult
-            + cycle.id.uuidString.count
-            + Int(cycle.startDate.timeIntervalSince1970)
-            + cycle.timezoneIdentifier.count
-    }
-
-    let slotVersion = slots.reduce(0) { partialResult, slot in
-        partialResult
-            + (slot.cycle?.id.uuidString.count ?? 0)
-            + slot.orderIndex
-            + slot.kind.rawValue.count
-            + slot.templateStableID.count
-            + (slot.template?.stableID.count ?? 0)
-            + (slot.template?.name.count ?? 0)
-            + (slot.template?.colorHex?.count ?? 0)
-    }
-
-    let overrideVersion = overrides.reduce(0) { partialResult, dayOverride in
-        partialResult
-            + (dayOverride.cycle?.id.uuidString.count ?? 0)
-            + dayOverride.localDateKey.count
-            + dayOverride.cycleDateKey.count
-            + dayOverride.kind.rawValue.count
-            + dayOverride.templateStableID.count
-            + (dayOverride.template?.stableID.count ?? 0)
-            + (dayOverride.template?.name.count ?? 0)
-            + (dayOverride.template?.colorHex?.count ?? 0)
-    }
-
-    let sessionVersion = sessions.reduce(0) { partialResult, session in
-        partialResult
-            + session.id.uuidString.count
-            + (session.template?.stableID.count ?? 0)
-            + session.templateNameSnapshot.count
-            + session.templateStableIDSnapshot.count
-            + Int(session.startedAt.timeIntervalSince1970)
-            + Int(session.endedAt?.timeIntervalSince1970 ?? 0)
-    }
-
-    let templateVersion = templates.reduce(0) { partialResult, template in
-        partialResult
-            + template.name.count
-            + template.sortIndex
-            + template.stableID.count
-            + (template.colorHex?.count ?? 0)
-    }
-
-    return cycleVersion
-        + slotVersion
-        + overrideVersion
-        + sessionVersion
-        + templateVersion
 }
 
 private struct TrainingScheduleEmptyState: View {

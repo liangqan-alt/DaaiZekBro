@@ -126,6 +126,8 @@
 
 **非目标：** 本项不重写 schedule engine，不改变计划计算逻辑。
 
+**已完成方向：** 展示刷新由调用方 `@Query` 提供 cycles、slots、overrides、sessions、templates，并组装为 `TrainingScheduleDataSnapshot`；刷新随这些查询集合变更触发，模板重命名或删除会推动今日计划卡更新，不再依赖手动 hash invalidation。
+
 ---
 
 ### P2-5 消除当前导航直接依赖的痛点（独立 PR）
@@ -220,7 +222,7 @@
 | P1-3 | 继续当前、结束并新建、丢弃并新建；整体成功后通知取消被触发；整体失败时不触发、不导航；旧 session 已结束后新 session 创建失败时状态符合 PR 声明 |
 | P1-4 | 改造后各入口不做无条件全表 fetch；open session 有多个时取最近启动的；`exerciseNameSnapshot` 为空的旧 set 在查询改造前后结果一致；`lastSet` 改造前后跨 session 历史预填结果一致 |
 | P2-1 | `upsert` / `reset` 按唯一键精确命中；重复 key 时不新增记录 |
-| P2-4 | 变更或删除模板后今日计划卡刷新正确；`scheduleDataVersion` 不再存在 |
+| P2-4 | 模板重命名或删除后今日计划卡刷新正确；刷新来源为 cycles、slots、overrides、sessions、templates；`scheduleDataVersion` 不再存在 |
 | P2-5 | PR 声明处理入口和非目标；被处理入口不再直接 mutate app-level path；导航行为保持不变 |
 | P3-1 | 同名动作在同一 session 内可区分；计数和删除重编号不串线；session 创建后模板动作名或动作列表被编辑，route / notification / set 归属不漂移；通知 payload 对应 session 已删时不崩溃 |
 | P3-2 | 迁移前已有的 session 和 sets 在新 schema 下可读且归属正确；删该 session 后历史 sets 被级联删除；删 set 不影响 session |
