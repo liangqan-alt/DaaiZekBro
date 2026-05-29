@@ -1,8 +1,10 @@
 import Foundation
 import SwiftData
 
-enum DaaiZekBroSchema {
-    static let modelTypes: [any PersistentModel.Type] = [
+enum DaaiZekBroSchemaV1: VersionedSchema {
+    static let versionIdentifier = Schema.Version(1, 0, 0)
+
+    static let models: [any PersistentModel.Type] = [
         Exercise.self,
         Template.self,
         TemplateExercise.self,
@@ -13,9 +15,21 @@ enum DaaiZekBroSchema {
         WorkoutSessionExerciseSnapshot.self,
         WorkoutSet.self,
     ]
+}
+
+enum DaaiZekBroMigrationPlan: SchemaMigrationPlan {
+    static let schemas: [any VersionedSchema.Type] = [
+        DaaiZekBroSchemaV1.self,
+    ]
+
+    static let stages: [MigrationStage] = []
+}
+
+enum DaaiZekBroSchema {
+    static let modelTypes = DaaiZekBroSchemaV1.models
 
     static func makeSchema() -> Schema {
-        Schema(modelTypes)
+        Schema(versionedSchema: DaaiZekBroSchemaV1.self)
     }
 
     static func makeModelContainer(isStoredInMemoryOnly: Bool) throws -> ModelContainer {
@@ -25,13 +39,21 @@ enum DaaiZekBroSchema {
             isStoredInMemoryOnly: isStoredInMemoryOnly
         )
 
-        return try ModelContainer(for: schema, configurations: [configuration])
+        return try ModelContainer(
+            for: schema,
+            migrationPlan: DaaiZekBroMigrationPlan.self,
+            configurations: [configuration]
+        )
     }
 
     static func makeModelContainer(storeURL: URL) throws -> ModelContainer {
         let schema = makeSchema()
         let configuration = ModelConfiguration(schema: schema, url: storeURL)
 
-        return try ModelContainer(for: schema, configurations: [configuration])
+        return try ModelContainer(
+            for: schema,
+            migrationPlan: DaaiZekBroMigrationPlan.self,
+            configurations: [configuration]
+        )
     }
 }

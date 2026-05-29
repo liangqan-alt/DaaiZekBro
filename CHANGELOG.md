@@ -5,6 +5,14 @@
 
 ## [Unreleased]
 
+## [V0.31] - 2026-05-29
+
+### 新增
+- 增加 SwiftData migration 入口回归测试，覆盖当前 schema 模型顺序、空 migration stage、容器创建路径携带 migration plan、file-backed store 重开，以及旧 store 打开后历史训练记录可读。
+
+### 变更
+- SwiftData 容器创建改为通过 `DaaiZekBroSchemaV1` 和 `DaaiZekBroMigrationPlan` 声明当前 schema 与迁移入口，为后续真实 schema 变更提供明确 stage，不改变当前模型关系、cascade 或业务语义。
+
 ## [V0.30] - 2026-05-29
 
 ### 新增

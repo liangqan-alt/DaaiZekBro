@@ -19,6 +19,8 @@ struct AppStartupTests {
         context.insert(Exercise(name: "Startup Smoke"))
         try context.save()
 
+        #expect(containerUsesSharedMigrationPlan(container))
+
         let exercises = try context.fetch(FetchDescriptor<Exercise>())
         #expect(exercises.map(\.name) == ["Startup Smoke"])
     }
@@ -37,6 +39,14 @@ struct AppStartupTests {
         #expect(failure.message.contains("没有被自动擦除"))
         #expect(failure.diagnosticMessage.contains("Injected container failure"))
     }
+}
+
+private func containerUsesSharedMigrationPlan(_ container: ModelContainer) -> Bool {
+    guard let migrationPlan = container.migrationPlan else {
+        return false
+    }
+
+    return ObjectIdentifier(migrationPlan) == ObjectIdentifier(DaaiZekBroMigrationPlan.self)
 }
 
 private struct SentinelContainerError: LocalizedError {
