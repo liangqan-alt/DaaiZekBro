@@ -93,7 +93,7 @@ enum ExerciseLibrary {
         for template in affectedTemplates {
             let remainingLinks = templateExercises
                 .filter { $0.template === template && $0.exercise !== exercise }
-                .sorted(by: templateExerciseSort)
+                .sortedByTemplateExerciseOrder()
 
             for (index, link) in remainingLinks.enumerated() {
                 link.orderIndex = index
@@ -148,11 +148,4 @@ enum ExerciseLibrary {
         }
     }
 
-    private static func templateExerciseSort(_ lhs: TemplateExercise, _ rhs: TemplateExercise) -> Bool {
-        if lhs.orderIndex != rhs.orderIndex {
-            return lhs.orderIndex < rhs.orderIndex
-        }
-
-        return (lhs.exercise?.name ?? "") < (rhs.exercise?.name ?? "")
-    }
 }

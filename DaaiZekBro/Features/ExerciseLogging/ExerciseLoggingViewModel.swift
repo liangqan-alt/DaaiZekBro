@@ -133,13 +133,7 @@ final class ExerciseLoggingViewModel {
     }
 
     func sortedSets(_ sets: [WorkoutSet]) -> [WorkoutSet] {
-        sets.sorted { lhs, rhs in
-            if lhs.completedAt != rhs.completedAt {
-                return lhs.completedAt < rhs.completedAt
-            }
-
-            return lhs.setIndex < rhs.setIndex
-        }
+        WorkoutSetLogging.sortedByCompletedAt(sets)
     }
 
     func leftSets(from sets: [WorkoutSet]) -> [WorkoutSet] {

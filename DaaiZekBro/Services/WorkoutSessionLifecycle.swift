@@ -174,7 +174,7 @@ enum WorkoutSessionLifecycle {
             }
         } else {
             orderedExerciseDescriptors = templateExercises
-                .sorted(by: templateExerciseSort)
+                .sortedByTemplateExerciseOrder()
                 .compactMap { templateExercise in
                     guard let exercise = templateExercise.exercise else { return nil }
 
@@ -195,7 +195,7 @@ enum WorkoutSessionLifecycle {
 
     static func orderedExercises(for template: Template) -> [Exercise] {
         let linkedExercises = template.templateExercises
-            .sorted(by: templateExerciseSort)
+            .sortedByTemplateExerciseOrder()
             .compactMap(\.exercise)
 
         if linkedExercises.isEmpty == false {
@@ -220,14 +220,6 @@ enum WorkoutSessionLifecycle {
         }
 
         return lhs.exerciseNameSnapshot < rhs.exerciseNameSnapshot
-    }
-
-    private static func templateExerciseSort(_ lhs: TemplateExercise, _ rhs: TemplateExercise) -> Bool {
-        if lhs.orderIndex != rhs.orderIndex {
-            return lhs.orderIndex < rhs.orderIndex
-        }
-
-        return (lhs.exercise?.name ?? "") < (rhs.exercise?.name ?? "")
     }
 
     static func recordedSetCountsByExerciseName(

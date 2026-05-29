@@ -239,13 +239,7 @@ struct NotificationNavigationTests {
     private func templateExerciseLinks(for template: Template, in context: ModelContext) throws -> [TemplateExercise] {
         try context.fetch(FetchDescriptor<TemplateExercise>())
             .filter { $0.template === template }
-            .sorted { lhs, rhs in
-                if lhs.orderIndex != rhs.orderIndex {
-                    return lhs.orderIndex < rhs.orderIndex
-                }
-
-                return (lhs.exercise?.name ?? "") < (rhs.exercise?.name ?? "")
-            }
+            .sortedByTemplateExerciseOrder()
     }
 }
 

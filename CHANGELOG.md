@@ -5,6 +5,14 @@
 
 ## [Unreleased]
 
+## [V0.33] - 2026-05-29
+
+### 新增
+- 增加 P3-3 排序行为核心测试，覆盖 `TemplateExercise` 按 `orderIndex` 与动作名排序，以及训练记录组按完成时间与组序号排序。
+
+### 变更
+- 统一重复的 `TemplateExercise` 排序 helper，服务层与相关测试 helper 复用同一排序逻辑；训练记录页 set 排序改为复用 `WorkoutSetLogging`，保持既有排序行为不变。
+
 ## [V0.32] - 2026-05-29
 
 ### 新增

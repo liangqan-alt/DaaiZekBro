@@ -362,7 +362,7 @@ enum SeedData {
                 continue
             }
 
-            for (index, link) in links.sorted(by: templateExerciseSort).enumerated() {
+            for (index, link) in links.sortedByTemplateExerciseOrder().enumerated() {
                 link.orderIndex = index
             }
         }
@@ -387,14 +387,6 @@ enum SeedData {
         orderedExercises.append(contentsOf: remainingExercises)
 
         return orderedExercises
-    }
-
-    private static func templateExerciseSort(_ lhs: TemplateExercise, _ rhs: TemplateExercise) -> Bool {
-        if lhs.orderIndex != rhs.orderIndex {
-            return lhs.orderIndex < rhs.orderIndex
-        }
-
-        return (lhs.exercise?.name ?? "") < (rhs.exercise?.name ?? "")
     }
 
     private static func defaultColorHex(forSeedTemplateName name: String) -> String? {

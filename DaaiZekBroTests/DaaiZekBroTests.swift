@@ -1133,13 +1133,7 @@ struct DaaiZekBroTests {
     private func templateExerciseLinks(for template: Template, in context: ModelContext) throws -> [TemplateExercise] {
         try fetchTemplateExercises(in: context)
             .filter { $0.template === template }
-            .sorted { lhs, rhs in
-                if lhs.orderIndex != rhs.orderIndex {
-                    return lhs.orderIndex < rhs.orderIndex
-                }
-
-                return (lhs.exercise?.name ?? "") < (rhs.exercise?.name ?? "")
-            }
+            .sortedByTemplateExerciseOrder()
     }
 
     private func templateExerciseNames(for template: Template, in context: ModelContext) throws -> [String] {

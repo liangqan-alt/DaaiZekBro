@@ -253,6 +253,57 @@ struct WorkoutSessionExerciseIdentityTests {
         ).map(\.weight) == [30])
     }
 
+    @Test func templateExercisesUseOrderIndexThenNameDisplayOrder() throws {
+        let context = try makeInMemoryContext()
+        let template = Template(name: "Ordering Test")
+        let beta = Exercise(name: "Beta Press", defaultRestSeconds: 90, isUnilateral: false)
+        let delta = Exercise(name: "Delta Row", defaultRestSeconds: 120, isUnilateral: false)
+        let alpha = Exercise(name: "Alpha Curl", defaultRestSeconds: 60, isUnilateral: false)
+        let gamma = Exercise(name: "Gamma Squat", defaultRestSeconds: 150, isUnilateral: false)
+
+        context.insert(template)
+
+        for exercise in [beta, delta, alpha, gamma] {
+            context.insert(exercise)
+        }
+
+        for templateExercise in [
+            TemplateExercise(template: template, exercise: beta, orderIndex: 2),
+            TemplateExercise(template: template, exercise: delta, orderIndex: 1),
+            TemplateExercise(template: template, exercise: alpha, orderIndex: 1),
+            TemplateExercise(template: template, exercise: gamma, orderIndex: 0),
+        ] {
+            context.insert(templateExercise)
+        }
+
+        try context.save()
+
+        let templateDescriptors = try WorkoutSessionLifecycle.exerciseDescriptors(for: template, in: context)
+        let session = try WorkoutSessionLifecycle.createSession(for: template, in: context)
+        let sessionDescriptors = try WorkoutSessionLifecycle.exerciseDescriptors(for: session, in: context)
+
+        #expect(WorkoutSessionLifecycle.orderedExercises(for: template).map(\.name) == [
+            "Gamma Squat",
+            "Alpha Curl",
+            "Delta Row",
+            "Beta Press",
+        ])
+        #expect(templateDescriptors.map(\.name) == [
+            "Gamma Squat",
+            "Alpha Curl",
+            "Delta Row",
+            "Beta Press",
+        ])
+        #expect(templateDescriptors.map(\.orderIndex) == [0, 1, 1, 2])
+        #expect(sessionDescriptors.map(\.name) == [
+            "Gamma Squat",
+            "Alpha Curl",
+            "Delta Row",
+            "Beta Press",
+        ])
+        #expect(sessionDescriptors.map(\.orderIndex) == [0, 1, 1, 2])
+    }
+
     private func makeSession(exercises: [Exercise], in context: ModelContext) throws -> WorkoutSession {
         let template = Template(name: "Identity Test")
 
@@ -305,13 +356,7 @@ struct WorkoutSessionExerciseIdentityTests {
     private func templateExerciseLinks(for template: Template, in context: ModelContext) throws -> [TemplateExercise] {
         try fetchTemplateExercises(in: context)
             .filter { $0.template === template }
-            .sorted { lhs, rhs in
-                if lhs.orderIndex != rhs.orderIndex {
-                    return lhs.orderIndex < rhs.orderIndex
-                }
-
-                return (lhs.exercise?.name ?? "") < (rhs.exercise?.name ?? "")
-            }
+            .sortedByTemplateExerciseOrder()
     }
 }
 

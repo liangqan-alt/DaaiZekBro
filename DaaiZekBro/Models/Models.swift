@@ -111,6 +111,18 @@ final class TemplateExercise {
     }
 }
 
+extension Sequence where Element == TemplateExercise {
+    func sortedByTemplateExerciseOrder() -> [TemplateExercise] {
+        sorted { lhs, rhs in
+            if lhs.orderIndex != rhs.orderIndex {
+                return lhs.orderIndex < rhs.orderIndex
+            }
+
+            return (lhs.exercise?.name ?? "") < (rhs.exercise?.name ?? "")
+        }
+    }
+}
+
 @Model
 final class WorkoutSession {
     var id: UUID = UUID()
