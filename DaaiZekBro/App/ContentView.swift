@@ -34,8 +34,12 @@ struct ContentView: View {
                 switch route {
                 case .currentWorkout(let sessionID):
                     CurrentWorkoutView(sessionID: sessionID, path: $path)
-                case .exerciseLogging(let sessionID, let exerciseName):
-                    ExerciseLoggingView(sessionID: sessionID, exerciseName: exerciseName)
+                case .exerciseLogging(let sessionID, let exerciseOrderIndex, let exerciseName):
+                    ExerciseLoggingView(
+                        sessionID: sessionID,
+                        exerciseOrderIndex: exerciseOrderIndex,
+                        exerciseName: exerciseName
+                    )
                 case .templateEdit(let templateID):
                     TemplateEditView(templateID: templateID)
                 case .trainingSchedule:

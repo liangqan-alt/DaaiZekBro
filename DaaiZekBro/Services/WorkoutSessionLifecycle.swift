@@ -136,6 +136,14 @@ enum WorkoutSessionLifecycle {
         try exerciseDescriptors(for: session, in: context).first { $0.name == exerciseName }
     }
 
+    static func exerciseDescriptor(
+        orderIndex: Int,
+        for session: WorkoutSession,
+        in context: ModelContext
+    ) throws -> WorkoutSessionExerciseDescriptor? {
+        try exerciseDescriptors(for: session, in: context).first { $0.orderIndex == orderIndex }
+    }
+
     static func exerciseDescriptors(
         for session: WorkoutSession,
         in context: ModelContext

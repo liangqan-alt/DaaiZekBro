@@ -6,6 +6,7 @@ import UIKit
 
 struct ExerciseLoggingView: View {
     let sessionID: UUID
+    let exerciseOrderIndex: Int
     let exerciseName: String
 
     @Environment(\.modelContext) private var modelContext
@@ -120,7 +121,7 @@ struct ExerciseLoggingView: View {
         }
 
         return try? WorkoutSessionLifecycle.exerciseDescriptor(
-            named: exerciseName,
+            orderIndex: exerciseOrderIndex,
             for: session,
             in: modelContext
         )
@@ -157,7 +158,7 @@ struct ExerciseLoggingView: View {
     private var loggedSets: [WorkoutSet] {
         WorkoutSetLogging.sortedByCompletedAt(
             sets.filter { set in
-                set.session?.id == sessionID && WorkoutSetLogging.exerciseName(for: set) == exerciseName
+                set.session?.id == sessionID && set.exerciseOrderIndex == exerciseOrderIndex
             }
         )
     }
@@ -436,7 +437,7 @@ struct ExerciseLoggingView: View {
         do {
             viewModel.selectedSide = try WorkoutSetLogging.inferredNextSide(
                 sessionID: sessionID,
-                exerciseName: exerciseName,
+                exerciseOrderIndex: exerciseOrderIndex,
                 in: modelContext
             )
         } catch {
@@ -480,7 +481,7 @@ struct ExerciseLoggingView: View {
         do {
             let savedSet = try WorkoutSetLogging.recordSet(
                 sessionID: sessionID,
-                exerciseName: exerciseName,
+                exerciseOrderIndex: exerciseOrderIndex,
                 weight: weight,
                 reps: reps,
                 rpe: viewModel.selectedRPE,
@@ -515,6 +516,7 @@ struct ExerciseLoggingView: View {
             await restTimer.start(
                 restSeconds: restSeconds,
                 sessionID: sessionID,
+                exerciseOrderIndex: exerciseOrderIndex,
                 exerciseName: exerciseName,
                 startedAt: startedAt
             )

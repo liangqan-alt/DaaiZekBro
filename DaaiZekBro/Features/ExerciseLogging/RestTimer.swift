@@ -5,6 +5,7 @@ import SwiftUI
 struct RestTimerState: Equatable, Identifiable {
     let id: UUID
     let sessionID: UUID
+    let exerciseOrderIndex: Int?
     let exerciseName: String
     let startedAt: Date
     var endsAt: Date
@@ -42,6 +43,7 @@ final class RestTimerModel: ObservableObject {
         restSeconds: Int,
         sessionID: UUID,
         exerciseName: String,
+        exerciseOrderIndex: Int? = nil,
         startedAt: Date? = nil
     ) async {
         let safeRestSeconds = max(1, restSeconds)
@@ -51,6 +53,7 @@ final class RestTimerModel: ObservableObject {
         let initialState = RestTimerState(
             id: timerID,
             sessionID: sessionID,
+            exerciseOrderIndex: exerciseOrderIndex,
             exerciseName: exerciseName,
             startedAt: startDate,
             endsAt: endsAt,
@@ -60,7 +63,29 @@ final class RestTimerModel: ObservableObject {
         )
 
         state = initialState
-        await replaceNotification(for: timerID, sessionID: sessionID, exerciseName: exerciseName, deliverAt: endsAt)
+        await replaceNotification(
+            for: timerID,
+            sessionID: sessionID,
+            exerciseName: exerciseName,
+            exerciseOrderIndex: exerciseOrderIndex,
+            deliverAt: endsAt
+        )
+    }
+
+    func start(
+        restSeconds: Int,
+        sessionID: UUID,
+        exerciseOrderIndex: Int?,
+        exerciseName: String,
+        startedAt: Date? = nil
+    ) async {
+        await start(
+            restSeconds: restSeconds,
+            sessionID: sessionID,
+            exerciseName: exerciseName,
+            exerciseOrderIndex: exerciseOrderIndex,
+            startedAt: startedAt
+        )
     }
 
     func addThirtySeconds() async {
@@ -76,6 +101,7 @@ final class RestTimerModel: ObservableObject {
             for: currentState.id,
             sessionID: currentState.sessionID,
             exerciseName: currentState.exerciseName,
+            exerciseOrderIndex: currentState.exerciseOrderIndex,
             deliverAt: currentState.endsAt
         )
     }
@@ -109,12 +135,14 @@ final class RestTimerModel: ObservableObject {
         for timerID: UUID,
         sessionID: UUID,
         exerciseName: String,
+        exerciseOrderIndex: Int?,
         deliverAt: Date
     ) async {
         do {
             let result = try await scheduler.replaceRestCompletionNotification(
                 sessionID: sessionID,
                 exerciseName: exerciseName,
+                exerciseOrderIndex: exerciseOrderIndex,
                 deliverAt: deliverAt
             )
 

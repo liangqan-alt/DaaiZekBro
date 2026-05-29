@@ -5,6 +5,14 @@
 
 ## [Unreleased]
 
+## [V0.30] - 2026-05-29
+
+### 新增
+- 增加 P3-1 session-local exercise identity 核心测试，覆盖同一 session 内同名动作、通知回跳、计数/删除重编号、side 推导、模板编辑后不漂移，以及旧 name-only 通知 payload 兼容。
+
+### 变更
+- 当前训练内动作定位改为使用 `(sessionID, exerciseOrderIndex)`，覆盖 route、ExerciseLogging、WorkoutSetLogging、当前训练计数、删除重编号、side inference 和休息通知 payload；旧通知 payload 仅在名称唯一匹配时回跳记录页，重复或失配时安全回到当前训练页。
+
 ## [V0.29] - 2026-05-29
 
 ### 新增

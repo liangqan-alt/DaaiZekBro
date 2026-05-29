@@ -163,7 +163,13 @@
 
 **能力边界：** session 路由和通知只要求 session-local identity；历史展示要求 snapshot 可读；跨 store / 重装属于未来独立能力，不纳入本项验收。
 
-**设计决策（待 PR 论证）：** 以下候选方案各有限制，不预设选型：
+**已完成方向：** 当前训练内 route、通知 payload、ExerciseLogging、WorkoutSetLogging、当前训练计数、删除重编号和 side inference 已收敛到 session-local identity：`(sessionID, exerciseOrderIndex)`。`exerciseOrderIndex` 来自 session 创建时写入的 `WorkoutSessionExerciseSnapshot`，`exerciseNameSnapshot` 继续用于展示、导出和旧数据 fallback。
+
+**兼容语义：** 新休息通知 payload 可携带 `exerciseOrderIndex` 并按 session snapshot 精确回跳；旧 name-only payload 仅在当前 session 内名称唯一匹配时回跳记录页，同名重复或失配时回到当前训练页。payload 对应 session 已删除、丢弃或已结束时返回首页路径，不崩溃、不写入 set。
+
+**非目标：** 本项未引入 schema / migration / cascade 变更；`WorkoutSessionLifecycle.resolvedTemplate` 的模板名字 fallback 仍作为相邻历史解析问题单独处理。
+
+**设计决策参考：** P3-1 已选择 session-scoped index；以下候选方案限制保留为未来调整参考：
 
 | 候选 | 限制 |
 |---|---|

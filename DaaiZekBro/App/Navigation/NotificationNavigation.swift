@@ -28,14 +28,29 @@ enum NotificationNavigationResolver {
             return []
         }
 
-        let exerciseNames = try WorkoutSessionLifecycle.exerciseDescriptors(for: session, in: context).map(\.name)
-        guard exerciseNames.contains(payload.exerciseName) else {
+        let exerciseDescriptors = try WorkoutSessionLifecycle.exerciseDescriptors(for: session, in: context)
+        let exerciseDescriptor: WorkoutSessionExerciseDescriptor?
+
+        if let exerciseOrderIndex = payload.exerciseOrderIndex {
+            exerciseDescriptor = exerciseDescriptors.first {
+                $0.orderIndex == exerciseOrderIndex && $0.name == payload.exerciseName
+            }
+        } else {
+            let matchingDescriptors = exerciseDescriptors.filter { $0.name == payload.exerciseName }
+            exerciseDescriptor = matchingDescriptors.count == 1 ? matchingDescriptors[0] : nil
+        }
+
+        guard let exerciseDescriptor else {
             return [.currentWorkout(sessionID: session.id)]
         }
 
         return [
             .currentWorkout(sessionID: session.id),
-            .exerciseLogging(sessionID: session.id, exerciseName: payload.exerciseName),
+            .exerciseLogging(
+                sessionID: session.id,
+                exerciseOrderIndex: exerciseDescriptor.orderIndex,
+                exerciseName: exerciseDescriptor.name
+            ),
         ]
     }
 }
