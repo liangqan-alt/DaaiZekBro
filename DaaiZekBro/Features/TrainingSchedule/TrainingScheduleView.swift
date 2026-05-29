@@ -278,6 +278,8 @@ private struct TrainingScheduleDayRow: View {
                     .frame(width: 3)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
     }
 }
 
@@ -615,6 +617,8 @@ private struct TrainingDayTemplatePickerView: View {
 
                                     Spacer()
                                 }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                             .accessibilityIdentifier("training-day-template-\(template.name)")

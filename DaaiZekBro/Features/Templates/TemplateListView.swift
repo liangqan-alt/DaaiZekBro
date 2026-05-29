@@ -424,6 +424,7 @@ struct TemplateListView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(DZColor.pump500)
             .clipShape(RoundedRectangle(cornerRadius: DZMetric.radius, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: DZMetric.radius, style: .continuous))
             .dzShadowSM()
         }
         .buttonStyle(.plain)
@@ -810,6 +811,8 @@ private struct TemplateEditRow: View {
             Spacer()
         }
         .padding(.vertical, 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
         .listRowBackground(DZColor.cream50)
     }
 }

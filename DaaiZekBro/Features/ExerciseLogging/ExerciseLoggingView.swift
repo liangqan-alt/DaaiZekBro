@@ -320,8 +320,11 @@ struct ExerciseLoggingView: View {
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("rpe-toggle-button")
 
             if viewModel.isRPEExpanded {
                 DZDivider()

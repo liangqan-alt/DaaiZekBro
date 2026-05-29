@@ -52,9 +52,20 @@ final class DaaiZekBroUITests: XCTestCase {
 
         let entry = app.buttons["training-schedule-entry"]
         XCTAssertTrue(entry.waitForExistence(timeout: 5))
-        entry.tap()
+        tapRightSide(of: entry)
 
         XCTAssertTrue(app.scrollViews["training-schedule-screen"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor
+    func testTrainingScheduleDayRowRespondsToRightSideTap() throws {
+        let app = launchUITestApp(fixture: "today-plan-ready")
+        openTrainingSchedule(in: app)
+
+        let weekList = waitForElement(identifier: "training-schedule-week-list", in: app)
+        tapRightSide(of: weekList, verticalOffset: 0.08)
+
+        XCTAssertTrue(waitForElement(identifier: "training-schedule-day-detail", in: app).exists)
     }
 
     @MainActor
@@ -148,6 +159,33 @@ final class DaaiZekBroUITests: XCTestCase {
     }
 
     @MainActor
+    func testTemplateEditRowRespondsToRightSideTap() throws {
+        let app = launchUITestApp(fixture: "today-plan-no-cycle")
+
+        waitForElement(identifier: "home-template-edit-button", in: app).tap()
+        let row = waitForElement(identifier: "template-edit-Push A", in: app)
+        tapRightSide(of: row)
+
+        XCTAssertTrue(app.navigationBars["编辑模板"].waitForExistence(timeout: 5))
+        XCTAssertTrue(waitForElement(identifier: "template-edit-add-exercise-button", in: app).exists)
+    }
+
+    @MainActor
+    func testRPEToggleRespondsToRightSideTap() throws {
+        let app = launchUITestApp(fixture: "today-plan-no-cycle")
+
+        tapTemplate(named: "Push A", in: app)
+        let exercise = app.staticTexts["固定器械卧推"].firstMatch
+        XCTAssertTrue(exercise.waitForExistence(timeout: 5))
+        exercise.tap()
+
+        let toggle = waitForElement(identifier: "rpe-toggle-button", in: app)
+        tapRightSide(of: toggle)
+
+        XCTAssertTrue(waitForElement(identifier: "rpe-6", in: app).exists)
+    }
+
+    @MainActor
     func testTemplateConflictDialogOptionsRouteCorrectly() throws {
         let app = launchUITestApp(fixture: "template-open-session-no-cycle")
         tapTemplate(named: "Pull A", in: app)
@@ -224,6 +262,26 @@ final class DaaiZekBroUITests: XCTestCase {
         }
 
         return app.buttons["开始训练"].firstMatch
+    }
+
+    @MainActor
+    private func tapRightSide(
+        of element: XCUIElement,
+        verticalOffset: CGFloat = 0.5,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertTrue(element.exists, "Expected element to exist before right-side tap", file: file, line: line)
+        XCTAssertTrue(element.isHittable, "Expected element to be hittable before right-side tap", file: file, line: line)
+        XCTAssertGreaterThan(
+            element.frame.width,
+            180,
+            "Expected element to be wide enough for a right-side hit-target regression",
+            file: file,
+            line: line
+        )
+
+        element.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: verticalOffset)).tap()
     }
 
     private func homeScreen(in app: XCUIApplication) -> XCUIElement {
