@@ -68,13 +68,15 @@ final class DaaiZekBroUITests: XCTestCase {
     }
 
     @MainActor
-    func testTodayPlanCardBodyNavigatesToTrainingSchedule() throws {
+    func testTodayPlanCardBodyNavigatesToTrainingScheduleAndDayDetail() throws {
         let app = launchUITestApp(fixture: "today-plan-ready")
 
         XCTAssertTrue(todayPlanCardBody(in: app).waitForExistence(timeout: 5))
         todayPlanCardBody(in: app).tap()
 
         XCTAssertTrue(app.scrollViews["training-schedule-screen"].waitForExistence(timeout: 5))
+        tapTodayScheduleRow(in: app)
+        XCTAssertTrue(waitForElement(identifier: "training-schedule-day-detail", in: app).exists)
     }
 
     @MainActor

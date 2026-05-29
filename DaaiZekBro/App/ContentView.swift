@@ -39,9 +39,7 @@ struct ContentView: View {
                 case .templateEdit(let templateID):
                     TemplateEditView(templateID: templateID)
                 case .trainingSchedule:
-                    TrainingScheduleView(path: $path)
-                case .trainingScheduleDay(let date, let localDateKey):
-                    TrainingScheduleDayDetailView(date: date, localDateKey: localDateKey)
+                    TrainingScheduleView()
                 case .workoutHistory:
                     WorkoutHistoryView()
                 case .settings:

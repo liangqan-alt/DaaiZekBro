@@ -138,6 +138,10 @@
 
 **最小出口：** PR 必须声明本次处理的入口和非目标；被处理入口不再直接 mutate app-level `path`，导航行为保持不变。
 
+**本次落地策略：** 本次只处理 `TrainingScheduleView` 的训练日详情跳转入口，使该入口不再直接 mutate app-level `path`。非目标包括 `TemplateListView`、`CurrentWorkoutView` 等剩余直接 app-level path 依赖、全局 coordinator、业务规则、schema 与 UI 改动。
+
+**保留行为与剩余风险：** 保留 Home 与 Settings 进入训练安排后点击训练日仍打开详情的行为。剩余风险是其他 Feature View 仍可能直接依赖 app-level path，后续按独立切片继续处理。
+
 ---
 
 ## P3 — 加具体新功能前阻塞性检查

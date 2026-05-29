@@ -2,8 +2,6 @@ import SwiftData
 import SwiftUI
 
 struct TrainingScheduleView: View {
-    @Binding private var path: [AppRoute]
-    private let usesExternalPath: Bool
     @Environment(\.modelContext) private var modelContext
     @Query private var cycles: [TrainingCycle]
     @Query private var slots: [TrainingCycleSlot]
@@ -14,16 +12,6 @@ struct TrainingScheduleView: View {
     @State private var selectedDay: TrainingScheduleDayNavigation?
     @State private var isConfirmingDelete = false
     @State private var errorMessage: String?
-
-    init(path: Binding<[AppRoute]>? = nil) {
-        if let path {
-            _path = path
-            usesExternalPath = true
-        } else {
-            _path = .constant([])
-            usesExternalPath = false
-        }
-    }
 
     private var activeCycle: TrainingCycle? {
         cycles.first
@@ -149,11 +137,7 @@ struct TrainingScheduleView: View {
     }
 
     private func openDayDetail(_ day: TrainingSchedulePresentation.Day) {
-        if usesExternalPath {
-            path.append(.trainingScheduleDay(date: day.date, localDateKey: day.localDateKey))
-        } else {
-            selectedDay = TrainingScheduleDayNavigation(date: day.date, localDateKey: day.localDateKey)
-        }
+        selectedDay = TrainingScheduleDayNavigation(date: day.date, localDateKey: day.localDateKey)
     }
 
     private func deleteActiveCycle() {

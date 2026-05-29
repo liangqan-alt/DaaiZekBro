@@ -5,6 +5,14 @@
 
 ## [Unreleased]
 
+## [V0.29] - 2026-05-29
+
+### 新增
+- 增加 P2-5 训练安排导航解耦护栏与覆盖，明确本次只处理 `TrainingScheduleView` 训练日详情入口，并验证 Home 与 Settings 进入训练安排后的点击行为保持不变。
+
+### 变更
+- `TrainingScheduleView` 训练日详情跳转不再直接 mutate app-level `path`，避免该入口继续依赖 app 级导航栈写入。
+
 ## [V0.28] - 2026-05-29
 
 ### 新增
