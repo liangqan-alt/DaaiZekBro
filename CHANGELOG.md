@@ -5,6 +5,16 @@
 
 ## [Unreleased]
 
+## [V0.34] - 2026-05-29
+
+### 新增
+- 动作库支持为每个动作配置 `kg` / `lb` 重量单位，动作编辑页和模板快速新建入口可选择单位，动作库、模板编辑与当前训练动作列表会展示对应单位。
+- 增加动作重量单位回归测试，覆盖创建/编辑保存单位、session 快照冻结单位、`lb` 输入按 `kg` 落库、历史混合单位展示和 schema migration。
+
+### 变更
+- 训练记录页和训练历史详情页不再使用全局重量单位偏好，改为按动作或 session 快照单位输入与展示；`WorkoutSet.weight`、CSV 和衍生重量指标继续保持 `kg` 口径。
+- SwiftData schema 升级到 `DaaiZekBroSchemaV3`，通过 `V2 -> V3` lightweight migration 为 `Exercise` 和 `WorkoutSessionExerciseSnapshot` 增加重量单位字段，旧数据默认使用 `kg`。
+
 ## [V0.33] - 2026-05-29
 
 ### 新增
