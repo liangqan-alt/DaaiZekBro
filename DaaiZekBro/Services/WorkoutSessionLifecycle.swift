@@ -78,13 +78,6 @@ enum WorkoutSessionLifecycle {
     }
 
     static func discard(_ session: WorkoutSession, in context: ModelContext) throws {
-        let sessionID = session.id
-        let sets = try context.fetch(FetchDescriptor<WorkoutSet>())
-
-        for set in sets where set.session?.id == sessionID {
-            context.delete(set)
-        }
-
         context.delete(session)
         try context.save()
     }
@@ -99,12 +92,6 @@ enum WorkoutSessionLifecycle {
 
         guard sessions.allSatisfy({ $0.endedAt != nil }) else {
             throw WorkoutSessionLifecycleError.cannotDeleteOpenSession
-        }
-
-        let sets = try context.fetch(FetchDescriptor<WorkoutSet>())
-
-        for set in sets where set.session.map({ sessionIDs.contains($0.id) }) == true {
-            context.delete(set)
         }
 
         for session in sessions {

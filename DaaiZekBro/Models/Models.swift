@@ -122,6 +122,8 @@ final class WorkoutSession {
     var timezoneIdentifier: String = TimeZone.current.identifier
     @Relationship(deleteRule: .cascade, inverse: \WorkoutSessionExerciseSnapshot.session)
     var exerciseSnapshots: [WorkoutSessionExerciseSnapshot] = []
+    @Relationship(deleteRule: .cascade, inverse: \WorkoutSet.session)
+    var sets: [WorkoutSet] = []
 
     init(
         id: UUID = UUID(),

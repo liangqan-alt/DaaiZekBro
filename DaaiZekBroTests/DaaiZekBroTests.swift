@@ -314,11 +314,20 @@ struct DaaiZekBroTests {
         let template = try template(named: "Push A", in: context)
         let exercise = try exercise(named: "固定器械卧推", in: context)
         let deletedSession = try WorkoutSessionLifecycle.createSession(for: template, in: context)
-        let deletedSet = try WorkoutSetLogging.recordSet(
+        let deletedFirstSet = try WorkoutSetLogging.recordSet(
             sessionID: deletedSession.id,
             exerciseName: exercise.name,
             weight: 30,
             reps: 8,
+            rpe: nil,
+            side: nil,
+            in: context
+        )
+        let deletedSecondSet = try WorkoutSetLogging.recordSet(
+            sessionID: deletedSession.id,
+            exerciseName: exercise.name,
+            weight: 32.5,
+            reps: 7,
             rpe: nil,
             side: nil,
             in: context
@@ -336,15 +345,16 @@ struct DaaiZekBroTests {
             in: context
         )
         try WorkoutSessionLifecycle.end(keptSession, in: context)
+        let deletedSetIDs = Set([deletedFirstSet.id, deletedSecondSet.id])
 
         try WorkoutSessionLifecycle.deleteCompletedSessions(sessionIDs: [deletedSession.id], in: context)
 
         let sessions = try fetchSessions(in: context)
         let sets = try fetchSets(in: context)
 
-        #expect(sessions.map(\.id) == [keptSession.id])
-        #expect(sets.map(\.id) == [keptSet.id])
-        #expect(sets.contains { $0.id == deletedSet.id } == false)
+        #expect(Set(sessions.map(\.id)) == Set([keptSession.id]))
+        #expect(Set(sets.map(\.id)) == Set([keptSet.id]))
+        #expect(sets.allSatisfy { deletedSetIDs.contains($0.id) == false })
     }
 
     @Test func deleteCompletedSessionsRejectsOpenSessionWithoutPartialDelete() throws {
@@ -354,7 +364,7 @@ struct DaaiZekBroTests {
         let exercise = try exercise(named: "固定器械卧推", in: context)
         let endedSession = try WorkoutSessionLifecycle.createSession(for: template, in: context)
 
-        _ = try WorkoutSetLogging.recordSet(
+        let endedSet = try WorkoutSetLogging.recordSet(
             sessionID: endedSession.id,
             exerciseName: exercise.name,
             weight: 30,
@@ -366,7 +376,7 @@ struct DaaiZekBroTests {
         try WorkoutSessionLifecycle.end(endedSession, in: context)
 
         let openSession = try WorkoutSessionLifecycle.createSession(for: template, in: context)
-        _ = try WorkoutSetLogging.recordSet(
+        let openSet = try WorkoutSetLogging.recordSet(
             sessionID: openSession.id,
             exerciseName: exercise.name,
             weight: 32.5,
@@ -389,7 +399,7 @@ struct DaaiZekBroTests {
 
         #expect(didRejectOpenSession)
         #expect(Set(try fetchSessions(in: context).map(\.id)) == Set([endedSession.id, openSession.id]))
-        #expect(try fetchSets(in: context).count == 2)
+        #expect(Set(try fetchSets(in: context).map(\.id)) == Set([endedSet.id, openSet.id]))
     }
 
     @Test func exercisesFallbackToTemplateNameSnapshot() throws {
@@ -677,7 +687,7 @@ struct DaaiZekBroTests {
         let exercise = try exercise(named: "固定器械卧推", in: context)
         let session = try WorkoutSessionLifecycle.createSession(for: template, in: context)
 
-        _ = try WorkoutSetLogging.recordSet(
+        let firstSet = try WorkoutSetLogging.recordSet(
             sessionID: session.id,
             exerciseName: exercise.name,
             weight: 30,
@@ -697,7 +707,7 @@ struct DaaiZekBroTests {
             completedAt: Date(timeIntervalSince1970: 200),
             in: context
         )
-        _ = try WorkoutSetLogging.recordSet(
+        let thirdSet = try WorkoutSetLogging.recordSet(
             sessionID: session.id,
             exerciseName: exercise.name,
             weight: 35,
@@ -708,6 +718,7 @@ struct DaaiZekBroTests {
             in: context
         )
 
+        let remainingSetIDs = Set([firstSet.id, thirdSet.id])
         try WorkoutSetLogging.deleteAndRenumber(deletedSet, in: context)
 
         let remainingSets = try WorkoutSetLogging.sets(
@@ -719,6 +730,30 @@ struct DaaiZekBroTests {
 
         #expect(remainingSets.map(\.weight) == [30, 35])
         #expect(remainingSets.map(\.setIndex) == [1, 2])
+        #expect(Set(try fetchSessions(in: context).map(\.id)) == Set([session.id]))
+        #expect(Set(try fetchSets(in: context).map(\.id)) == remainingSetIDs)
+    }
+
+    @Test func deletingOnlySetDoesNotDeleteSession() throws {
+        let context = try makeInMemoryContext()
+        try SeedData.writeAndDedup(in: context)
+        let template = try template(named: "Push A", in: context)
+        let exercise = try exercise(named: "固定器械卧推", in: context)
+        let session = try WorkoutSessionLifecycle.createSession(for: template, in: context)
+        let set = try WorkoutSetLogging.recordSet(
+            sessionID: session.id,
+            exerciseName: exercise.name,
+            weight: 30,
+            reps: 8,
+            rpe: nil,
+            side: nil,
+            in: context
+        )
+
+        try WorkoutSetLogging.deleteAndRenumber(set, in: context)
+
+        #expect(Set(try fetchSessions(in: context).map(\.id)) == Set([session.id]))
+        #expect(try fetchSets(in: context).isEmpty)
     }
 
     @Test func deletingUnilateralSetRenumbersOnlyThatSide() throws {
