@@ -23,10 +23,36 @@ iOS 17.0+，Swift，SwiftUI，SwiftData，无三方依赖
 
 ## 运行测试
 
+日常验证优先运行 unit-only fast run，避免默认 full run 同时执行 UI tests 后在 XcodeBuildMCP 中超时。
+
 ```bash
-xcodebuild test -scheme DaaiZekBro \
-  -destination 'platform=iOS Simulator,name=iPhone 16'
+xcodebuild test -project DaaiZekBro.xcodeproj -scheme DaaiZekBro \
+  -configuration Debug \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  -derivedDataPath DerivedData \
+  -only-testing:DaaiZekBroTests
 ```
+
+UI tests 单独运行：
+
+```bash
+xcodebuild test -project DaaiZekBro.xcodeproj -scheme DaaiZekBro \
+  -configuration Debug \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  -derivedDataPath DerivedData \
+  -only-testing:DaaiZekBroUITests
+```
+
+完整回归可运行 full run，但不建议作为 XcodeBuildMCP 的默认/fast 验证路径：
+
+```bash
+xcodebuild test -project DaaiZekBro.xcodeproj -scheme DaaiZekBro \
+  -configuration Debug \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  -derivedDataPath DerivedData
+```
+
+如果本机没有 `iPhone 17 Pro` simulator，可用 `xcrun simctl list devices available` 查看可用设备后替换 destination。
 
 ## 项目结构
 
