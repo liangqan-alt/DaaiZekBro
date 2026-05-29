@@ -90,16 +90,18 @@ struct ExerciseLoggingViewModelTests {
         #expect(viewModel.parsedWeightKilograms == 0)
     }
 
-    @Test func applyPrefillClearsOrLoadsDraftValues() {
+    @Test func applyPrefillDefaultsOrLoadsDraftValues() {
         let viewModel = ExerciseLoggingViewModel()
 
+        #expect(viewModel.repsText == "10")
+
         viewModel.weightText = "20"
-        viewModel.repsText = "10"
+        viewModel.repsText = "8"
         viewModel.selectedRPE = 8
         viewModel.applyPrefill(nil)
 
         #expect(viewModel.weightText == "")
-        #expect(viewModel.repsText == "")
+        #expect(viewModel.repsText == "10")
         #expect(viewModel.selectedRPE == nil)
 
         viewModel.selectedRPE = 9

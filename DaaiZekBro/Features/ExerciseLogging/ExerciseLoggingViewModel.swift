@@ -12,7 +12,7 @@ final class ExerciseLoggingViewModel {
     }
 
     var weightText = ""
-    var repsText = ""
+    var repsText = "10"
     var selectedRPE: Int?
     var isRPEExpanded = false
     var errorMessage: String?
@@ -63,7 +63,7 @@ final class ExerciseLoggingViewModel {
     func applyPrefill(_ values: WorkoutSetValues?) {
         guard let values else {
             weightText = ""
-            repsText = ""
+            repsText = "10"
             selectedRPE = nil
             return
         }
