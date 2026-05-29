@@ -178,6 +178,78 @@ struct TrainingScheduleEngineTests {
         #expect(plan.source == .cycle)
     }
 
+    @Test func resetOverrideDeletesOnlyMatchingCycleDateKey() throws {
+        let context = try makeInMemoryContext()
+        let timeZone = try requiredTimeZone("Asia/Shanghai")
+        let fixtures = try makePPLTemplates(in: context)
+        let targetDate = try date(2026, 1, 29, 12, 0, 0, timeZone: timeZone)
+        let nextDate = try date(2026, 1, 30, 12, 0, 0, timeZone: timeZone)
+        let targetCycle = try TrainingScheduleEngine.createCycle(
+            startDate: targetDate,
+            timezoneIdentifier: timeZone.identifier,
+            slots: [TrainingScheduleSlotDraft(kind: .workout, template: fixtures.pushA)],
+            in: context
+        )
+        let otherCycle = TrainingCycle(startDate: targetDate, timezoneIdentifier: timeZone.identifier)
+        let otherCycleSlot = TrainingCycleSlot(
+            cycle: otherCycle,
+            orderIndex: 0,
+            kind: .workout,
+            template: fixtures.pullA
+        )
+        context.insert(otherCycle)
+        context.insert(otherCycleSlot)
+        try context.save()
+
+        _ = try TrainingDayOverride.upsert(
+            cycle: targetCycle,
+            localDateKey: "2026-01-29",
+            kind: .workout,
+            template: fixtures.legsA,
+            in: context
+        )
+        _ = try TrainingDayOverride.upsert(
+            cycle: targetCycle,
+            localDateKey: "2026-01-30",
+            kind: .workout,
+            template: fixtures.pullA,
+            in: context
+        )
+        _ = try TrainingDayOverride.upsert(
+            cycle: otherCycle,
+            localDateKey: "2026-01-29",
+            kind: .workout,
+            template: fixtures.pullA,
+            in: context
+        )
+
+        try TrainingScheduleEngine.resetOverride(
+            for: targetDate,
+            cycle: targetCycle,
+            now: targetDate,
+            in: context
+        )
+        let remainingOverrideKeys = Set(try fetchOverrides(in: context).map(\.cycleDateKey))
+        let targetKey = TrainingDayOverride.cycleDateKey(
+            cycleID: targetCycle.id,
+            localDateKey: "2026-01-29"
+        )
+        let sameCycleOtherDateKey = TrainingDayOverride.cycleDateKey(
+            cycleID: targetCycle.id,
+            localDateKey: "2026-01-30"
+        )
+        let otherCycleSameDateKey = TrainingDayOverride.cycleDateKey(
+            cycleID: otherCycle.id,
+            localDateKey: "2026-01-29"
+        )
+
+        #expect(remainingOverrideKeys == [sameCycleOtherDateKey, otherCycleSameDateKey])
+        #expect(remainingOverrideKeys.contains(targetKey) == false)
+        #expect(try TrainingScheduleEngine.plan(for: targetDate, cycle: targetCycle, in: context).source == .cycle)
+        #expect(try TrainingScheduleEngine.plan(for: nextDate, cycle: targetCycle, in: context).source == .override)
+        #expect(try TrainingScheduleEngine.plan(for: targetDate, cycle: otherCycle, in: context).source == .override)
+    }
+
     @Test func overrideTemplateRestResetAndRangeIsolation() throws {
         let context = try makeInMemoryContext()
         let timeZone = try requiredTimeZone("Asia/Shanghai")
@@ -979,19 +1051,7 @@ struct TrainingScheduleEngineTests {
     }
 
     private func makeInMemoryContext() throws -> ModelContext {
-        let schema = Schema([
-            Exercise.self,
-            Template.self,
-            TemplateExercise.self,
-            WorkoutSession.self,
-            TrainingCycle.self,
-            TrainingCycleSlot.self,
-            TrainingDayOverride.self,
-            WorkoutSessionExerciseSnapshot.self,
-            WorkoutSet.self,
-        ])
-        let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
-        let container = try ModelContainer(for: schema, configurations: [configuration])
+        let container = try DaaiZekBroSchema.makeModelContainer(isStoredInMemoryOnly: true)
 
         return ModelContext(container)
     }

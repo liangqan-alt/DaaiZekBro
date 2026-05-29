@@ -111,6 +111,18 @@ final class TemplateExercise {
     }
 }
 
+extension Sequence where Element == TemplateExercise {
+    func sortedByTemplateExerciseOrder() -> [TemplateExercise] {
+        sorted { lhs, rhs in
+            if lhs.orderIndex != rhs.orderIndex {
+                return lhs.orderIndex < rhs.orderIndex
+            }
+
+            return (lhs.exercise?.name ?? "") < (rhs.exercise?.name ?? "")
+        }
+    }
+}
+
 @Model
 final class WorkoutSession {
     var id: UUID = UUID()
@@ -122,6 +134,8 @@ final class WorkoutSession {
     var timezoneIdentifier: String = TimeZone.current.identifier
     @Relationship(deleteRule: .cascade, inverse: \WorkoutSessionExerciseSnapshot.session)
     var exerciseSnapshots: [WorkoutSessionExerciseSnapshot] = []
+    @Relationship(deleteRule: .cascade, inverse: \WorkoutSet.session)
+    var sets: [WorkoutSet] = []
 
     init(
         id: UUID = UUID(),
@@ -229,6 +243,18 @@ final class TrainingDayOverride {
         "\(cycleID.uuidString)|\(localDateKey)"
     }
 
+    @MainActor
+    static func existing(cycleDateKey targetKey: String, in context: ModelContext) throws -> TrainingDayOverride? {
+        var descriptor = FetchDescriptor<TrainingDayOverride>(
+            predicate: #Predicate<TrainingDayOverride> { dayOverride in
+                dayOverride.cycleDateKey == targetKey
+            }
+        )
+        descriptor.fetchLimit = 1
+
+        return try context.fetch(descriptor).first
+    }
+
     var isRestDay: Bool {
         kind == .rest
     }
@@ -247,9 +273,8 @@ final class TrainingDayOverride {
         in context: ModelContext
     ) throws -> TrainingDayOverride {
         let cycleDateKey = TrainingDayOverride.cycleDateKey(cycleID: cycle.id, localDateKey: localDateKey)
-        let existingOverrides = try context.fetch(FetchDescriptor<TrainingDayOverride>())
 
-        if let existingOverride = existingOverrides.first(where: { $0.cycleDateKey == cycleDateKey }) {
+        if let existingOverride = try existing(cycleDateKey: cycleDateKey, in: context) {
             existingOverride.cycle = cycle
             existingOverride.localDateKey = localDateKey
             existingOverride.kind = kind

@@ -3,10 +3,9 @@ import SwiftData
 
 enum AppRoute: Hashable {
     case currentWorkout(sessionID: UUID)
-    case exerciseLogging(sessionID: UUID, exerciseName: String)
+    case exerciseLogging(sessionID: UUID, exerciseOrderIndex: Int, exerciseName: String)
     case templateEdit(templateID: PersistentIdentifier)
     case trainingSchedule
-    case trainingScheduleDay(date: Date, localDateKey: String)
     case workoutHistory
     case settings
 }

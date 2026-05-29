@@ -204,17 +204,9 @@ enum TemplateLibrary {
     }
 
     private static func reindexExerciseLinks(_ links: [TemplateExercise]) {
-        for (index, link) in links.sorted(by: templateExerciseSort).enumerated() {
+        for (index, link) in links.sortedByTemplateExerciseOrder().enumerated() {
             link.orderIndex = index
         }
-    }
-
-    private static func templateExerciseSort(_ lhs: TemplateExercise, _ rhs: TemplateExercise) -> Bool {
-        if lhs.orderIndex != rhs.orderIndex {
-            return lhs.orderIndex < rhs.orderIndex
-        }
-
-        return (lhs.exercise?.name ?? "") < (rhs.exercise?.name ?? "")
     }
 }
 

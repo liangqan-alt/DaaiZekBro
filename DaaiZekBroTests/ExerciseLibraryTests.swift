@@ -271,19 +271,7 @@ struct ExerciseLibraryTests {
     }
 
     private func makeInMemoryContext() throws -> ModelContext {
-        let schema = Schema([
-            Exercise.self,
-            Template.self,
-            TemplateExercise.self,
-            WorkoutSession.self,
-            TrainingCycle.self,
-            TrainingCycleSlot.self,
-            TrainingDayOverride.self,
-            WorkoutSessionExerciseSnapshot.self,
-            WorkoutSet.self,
-        ])
-        let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
-        let container = try ModelContainer(for: schema, configurations: [configuration])
+        let container = try DaaiZekBroSchema.makeModelContainer(isStoredInMemoryOnly: true)
 
         return ModelContext(container)
     }
@@ -307,12 +295,6 @@ struct ExerciseLibraryTests {
     private func templateExerciseLinks(for template: Template, in context: ModelContext) throws -> [TemplateExercise] {
         try fetchTemplateExercises(in: context)
             .filter { $0.template === template }
-            .sorted { lhs, rhs in
-                if lhs.orderIndex != rhs.orderIndex {
-                    return lhs.orderIndex < rhs.orderIndex
-                }
-
-                return (lhs.exercise?.name ?? "") < (rhs.exercise?.name ?? "")
-            }
+            .sortedByTemplateExerciseOrder()
     }
 }

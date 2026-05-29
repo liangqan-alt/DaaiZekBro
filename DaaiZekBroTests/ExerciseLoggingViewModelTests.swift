@@ -206,4 +206,43 @@ struct ExerciseLoggingViewModelTests {
         #expect(viewModel.completionButtonTitle(isUnilateral: true) == "完成右侧 · 开始计时")
         #expect(viewModel.currentSide(isUnilateral: true) == .right)
     }
+
+    @Test func sortedSetsUsesCompletedAtThenSetIndex() {
+        let viewModel = ExerciseLoggingViewModel()
+        let firstAtSameTime = WorkoutSet(
+            exerciseNameSnapshot: "Row",
+            setIndex: 1,
+            completedAt: Date(timeIntervalSince1970: 200)
+        )
+        let secondAtSameTime = WorkoutSet(
+            exerciseNameSnapshot: "Row",
+            setIndex: 2,
+            completedAt: Date(timeIntervalSince1970: 200)
+        )
+        let earlierSet = WorkoutSet(
+            exerciseNameSnapshot: "Row",
+            setIndex: 3,
+            completedAt: Date(timeIntervalSince1970: 100)
+        )
+        let laterSet = WorkoutSet(
+            exerciseNameSnapshot: "Row",
+            setIndex: 1,
+            completedAt: Date(timeIntervalSince1970: 300)
+        )
+
+        let sortedSets = viewModel.sortedSets([
+            laterSet,
+            secondAtSameTime,
+            earlierSet,
+            firstAtSameTime,
+        ])
+
+        #expect(sortedSets.map(\.completedAt) == [
+            Date(timeIntervalSince1970: 100),
+            Date(timeIntervalSince1970: 200),
+            Date(timeIntervalSince1970: 200),
+            Date(timeIntervalSince1970: 300),
+        ])
+        #expect(sortedSets.map(\.setIndex) == [3, 1, 2, 1])
+    }
 }

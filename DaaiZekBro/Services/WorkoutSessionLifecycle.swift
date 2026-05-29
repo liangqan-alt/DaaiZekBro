@@ -18,13 +18,15 @@ enum WorkoutSessionLifecycleError: Error, LocalizedError, Equatable {
 @MainActor
 enum WorkoutSessionLifecycle {
     static func currentOpenSession(in context: ModelContext) throws -> WorkoutSession? {
-        let sessions = try context.fetch(
-            FetchDescriptor<WorkoutSession>(
-                sortBy: [SortDescriptor(\WorkoutSession.startedAt, order: .reverse)]
-            )
+        var descriptor = FetchDescriptor<WorkoutSession>(
+            predicate: #Predicate<WorkoutSession> { session in
+                session.endedAt == nil
+            },
+            sortBy: [SortDescriptor(\WorkoutSession.startedAt, order: .reverse)]
         )
+        descriptor.fetchLimit = 1
 
-        return sessions.first { $0.endedAt == nil }
+        return try context.fetch(descriptor).first
     }
 
     static func createSession(
@@ -76,13 +78,6 @@ enum WorkoutSessionLifecycle {
     }
 
     static func discard(_ session: WorkoutSession, in context: ModelContext) throws {
-        let sessionID = session.id
-        let sets = try context.fetch(FetchDescriptor<WorkoutSet>())
-
-        for set in sets where set.session?.id == sessionID {
-            context.delete(set)
-        }
-
         context.delete(session)
         try context.save()
     }
@@ -97,12 +92,6 @@ enum WorkoutSessionLifecycle {
 
         guard sessions.allSatisfy({ $0.endedAt != nil }) else {
             throw WorkoutSessionLifecycleError.cannotDeleteOpenSession
-        }
-
-        let sets = try context.fetch(FetchDescriptor<WorkoutSet>())
-
-        for set in sets where set.session.map({ sessionIDs.contains($0.id) }) == true {
-            context.delete(set)
         }
 
         for session in sessions {
@@ -132,6 +121,14 @@ enum WorkoutSessionLifecycle {
         in context: ModelContext
     ) throws -> WorkoutSessionExerciseDescriptor? {
         try exerciseDescriptors(for: session, in: context).first { $0.name == exerciseName }
+    }
+
+    static func exerciseDescriptor(
+        orderIndex: Int,
+        for session: WorkoutSession,
+        in context: ModelContext
+    ) throws -> WorkoutSessionExerciseDescriptor? {
+        try exerciseDescriptors(for: session, in: context).first { $0.orderIndex == orderIndex }
     }
 
     static func exerciseDescriptors(
@@ -177,7 +174,7 @@ enum WorkoutSessionLifecycle {
             }
         } else {
             orderedExerciseDescriptors = templateExercises
-                .sorted(by: templateExerciseSort)
+                .sortedByTemplateExerciseOrder()
                 .compactMap { templateExercise in
                     guard let exercise = templateExercise.exercise else { return nil }
 
@@ -198,7 +195,7 @@ enum WorkoutSessionLifecycle {
 
     static func orderedExercises(for template: Template) -> [Exercise] {
         let linkedExercises = template.templateExercises
-            .sorted(by: templateExerciseSort)
+            .sortedByTemplateExerciseOrder()
             .compactMap(\.exercise)
 
         if linkedExercises.isEmpty == false {
@@ -223,14 +220,6 @@ enum WorkoutSessionLifecycle {
         }
 
         return lhs.exerciseNameSnapshot < rhs.exerciseNameSnapshot
-    }
-
-    private static func templateExerciseSort(_ lhs: TemplateExercise, _ rhs: TemplateExercise) -> Bool {
-        if lhs.orderIndex != rhs.orderIndex {
-            return lhs.orderIndex < rhs.orderIndex
-        }
-
-        return (lhs.exercise?.name ?? "") < (rhs.exercise?.name ?? "")
     }
 
     static func recordedSetCountsByExerciseName(

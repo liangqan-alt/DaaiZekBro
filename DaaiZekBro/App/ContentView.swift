@@ -34,14 +34,16 @@ struct ContentView: View {
                 switch route {
                 case .currentWorkout(let sessionID):
                     CurrentWorkoutView(sessionID: sessionID, path: $path)
-                case .exerciseLogging(let sessionID, let exerciseName):
-                    ExerciseLoggingView(sessionID: sessionID, exerciseName: exerciseName)
+                case .exerciseLogging(let sessionID, let exerciseOrderIndex, let exerciseName):
+                    ExerciseLoggingView(
+                        sessionID: sessionID,
+                        exerciseOrderIndex: exerciseOrderIndex,
+                        exerciseName: exerciseName
+                    )
                 case .templateEdit(let templateID):
                     TemplateEditView(templateID: templateID)
                 case .trainingSchedule:
-                    TrainingScheduleView(path: $path)
-                case .trainingScheduleDay(let date, let localDateKey):
-                    TrainingScheduleDayDetailView(date: date, localDateKey: localDateKey)
+                    TrainingScheduleView()
                 case .workoutHistory:
                     WorkoutHistoryView()
                 case .settings:
@@ -131,17 +133,7 @@ private enum SeedStatus: Equatable {
 #Preview {
     ContentView(notificationRouter: NotificationNavigationRouter())
         .modelContainer(
-            for: [
-                Exercise.self,
-                Template.self,
-                TemplateExercise.self,
-                WorkoutSession.self,
-                TrainingCycle.self,
-                TrainingCycleSlot.self,
-                TrainingDayOverride.self,
-                WorkoutSessionExerciseSnapshot.self,
-                WorkoutSet.self,
-            ],
+            for: DaaiZekBroSchema.modelTypes,
             inMemory: true
         )
 }

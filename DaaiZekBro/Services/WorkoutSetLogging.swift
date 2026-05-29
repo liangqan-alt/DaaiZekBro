@@ -46,6 +46,7 @@ struct WorkoutSideCounts: Equatable {
 @MainActor
 enum WorkoutSetLogging {
     static let allowedRPEValues = [6, 7, 8, 9, 10]
+    private static let lastSetFetchPageSize = 50
 
     static func recordSet(
         sessionID: UUID,
@@ -67,6 +68,84 @@ enum WorkoutSetLogging {
             throw WorkoutSetLoggingError.exerciseNotFound
         }
 
+        return try recordSet(
+            session: session,
+            exerciseDescriptor: exerciseDescriptor,
+            weight: weight,
+            reps: reps,
+            rpe: rpe,
+            side: side,
+            completedAt: completedAt,
+            in: context
+        )
+    }
+
+    static func recordSet(
+        sessionID: UUID,
+        exerciseName: String,
+        exerciseOrderIndex: Int,
+        weight: Double,
+        reps: Int,
+        rpe: Int?,
+        side: Side?,
+        completedAt: Date = Date(),
+        in context: ModelContext
+    ) throws -> WorkoutSet {
+        try recordSet(
+            sessionID: sessionID,
+            exerciseOrderIndex: exerciseOrderIndex,
+            exerciseName: exerciseName,
+            weight: weight,
+            reps: reps,
+            rpe: rpe,
+            side: side,
+            completedAt: completedAt,
+            in: context
+        )
+    }
+
+    static func recordSet(
+        sessionID: UUID,
+        exerciseOrderIndex: Int,
+        exerciseName: String? = nil,
+        weight: Double,
+        reps: Int,
+        rpe: Int?,
+        side: Side?,
+        completedAt: Date = Date(),
+        in context: ModelContext
+    ) throws -> WorkoutSet {
+        let session = try session(with: sessionID, in: context)
+        guard let exerciseDescriptor = try WorkoutSessionLifecycle.exerciseDescriptor(
+            orderIndex: exerciseOrderIndex,
+            for: session,
+            in: context
+        ) else {
+            throw WorkoutSetLoggingError.exerciseNotFound
+        }
+
+        return try recordSet(
+            session: session,
+            exerciseDescriptor: exerciseDescriptor,
+            weight: weight,
+            reps: reps,
+            rpe: rpe,
+            side: side,
+            completedAt: completedAt,
+            in: context
+        )
+    }
+
+    private static func recordSet(
+        session: WorkoutSession,
+        exerciseDescriptor: WorkoutSessionExerciseDescriptor,
+        weight: Double,
+        reps: Int,
+        rpe: Int?,
+        side: Side?,
+        completedAt: Date,
+        in context: ModelContext
+    ) throws -> WorkoutSet {
         guard session.endedAt == nil else {
             throw WorkoutSetLoggingError.sessionAlreadyEnded
         }
@@ -74,8 +153,8 @@ enum WorkoutSetLogging {
         try validate(weight: weight, reps: reps, rpe: rpe)
         let normalizedSide = try validatedSide(side, isUnilateral: exerciseDescriptor.isUnilateral)
         let nextSetIndex = try sets(
-            sessionID: sessionID,
-            exerciseName: exerciseDescriptor.name,
+            sessionID: session.id,
+            exerciseOrderIndex: exerciseDescriptor.orderIndex,
             side: normalizedSide,
             in: context
         ).count + 1
@@ -100,7 +179,7 @@ enum WorkoutSetLogging {
     }
 
     static func deleteAndRenumber(_ set: WorkoutSet, in context: ModelContext) throws {
-        guard let sessionID = set.session?.id, let exerciseName = exerciseName(for: set) else {
+        guard let sessionID = set.session?.id else {
             context.delete(set)
             try context.save()
             return
@@ -108,7 +187,7 @@ enum WorkoutSetLogging {
 
         let remainingSets = try sets(
             sessionID: sessionID,
-            exerciseName: exerciseName,
+            exerciseOrderIndex: set.exerciseOrderIndex,
             side: set.side,
             in: context
         )
@@ -125,16 +204,40 @@ enum WorkoutSetLogging {
 
     static func setsForExercise(
         sessionID: UUID,
+        exerciseOrderIndex: Int,
+        in context: ModelContext
+    ) throws -> [WorkoutSet] {
+        let sessionSets = try setsForSession(sessionID: sessionID, in: context)
+
+        return sortedByCompletedAt(
+            sessionSets.filter { set in
+                set.exerciseOrderIndex == exerciseOrderIndex
+            }
+        )
+    }
+
+    static func setsForExercise(
+        sessionID: UUID,
         exerciseName: String,
         in context: ModelContext
     ) throws -> [WorkoutSet] {
-        let allSets = try context.fetch(FetchDescriptor<WorkoutSet>())
+        let sessionSets = try setsForSession(sessionID: sessionID, in: context)
 
         return sortedByCompletedAt(
-            allSets.filter { set in
-                set.session?.id == sessionID && self.exerciseName(for: set) == exerciseName
+            sessionSets.filter { set in
+                self.exerciseName(for: set) == exerciseName
             }
         )
+    }
+
+    static func sets(
+        sessionID: UUID,
+        exerciseOrderIndex: Int,
+        side: Side?,
+        in context: ModelContext
+    ) throws -> [WorkoutSet] {
+        try setsForExercise(sessionID: sessionID, exerciseOrderIndex: exerciseOrderIndex, in: context)
+            .filter { $0.side == side }
     }
 
     static func sets(
@@ -149,6 +252,19 @@ enum WorkoutSetLogging {
 
     static func sideCounts(
         sessionID: UUID,
+        exerciseOrderIndex: Int,
+        in context: ModelContext
+    ) throws -> WorkoutSideCounts {
+        let exerciseSets = try setsForExercise(sessionID: sessionID, exerciseOrderIndex: exerciseOrderIndex, in: context)
+
+        return WorkoutSideCounts(
+            left: exerciseSets.filter { $0.side == .left }.count,
+            right: exerciseSets.filter { $0.side == .right }.count
+        )
+    }
+
+    static func sideCounts(
+        sessionID: UUID,
         exerciseName: String,
         in context: ModelContext
     ) throws -> WorkoutSideCounts {
@@ -158,6 +274,20 @@ enum WorkoutSetLogging {
             left: exerciseSets.filter { $0.side == .left }.count,
             right: exerciseSets.filter { $0.side == .right }.count
         )
+    }
+
+    static func inferredNextSide(
+        sessionID: UUID,
+        exerciseOrderIndex: Int,
+        in context: ModelContext
+    ) throws -> Side {
+        let counts = try sideCounts(sessionID: sessionID, exerciseOrderIndex: exerciseOrderIndex, in: context)
+
+        if counts.left > counts.right {
+            return .right
+        }
+
+        return .left
     }
 
     static func inferredNextSide(
@@ -199,16 +329,15 @@ enum WorkoutSetLogging {
         side: Side?,
         in context: ModelContext
     ) throws -> WorkoutSet? {
-        let allSets = try context.fetch(FetchDescriptor<WorkoutSet>())
+        let exerciseID = exercise.persistentModelID
 
-        return allSets
-            .filter { set in
-                isSameExercise(set.exercise, as: exercise) && set.side == side
-            }
-            .sorted { lhs, rhs in
-                lhs.completedAt > rhs.completedAt
-            }
-            .first
+        return try firstSetMatchingSide(
+            predicate: #Predicate<WorkoutSet> { set in
+                set.exercise?.persistentModelID == exerciseID
+            },
+            side: side,
+            in: context
+        )
     }
 
     static func lastSet(
@@ -216,24 +345,14 @@ enum WorkoutSetLogging {
         side: Side?,
         in context: ModelContext
     ) throws -> WorkoutSet? {
-        let allSets = try context.fetch(FetchDescriptor<WorkoutSet>())
-
-        return allSets
-            .filter { set in
-                self.exerciseName(for: set) == exerciseName && set.side == side
-            }
-            .sorted { lhs, rhs in
-                lhs.completedAt > rhs.completedAt
-            }
-            .first
-    }
-
-    private static func isSameExercise(_ lhs: Exercise?, as rhs: Exercise) -> Bool {
-        guard let lhs else {
-            return false
-        }
-
-        return lhs === rhs || lhs.persistentModelID == rhs.persistentModelID
+        try firstSetMatchingSide(
+            predicate: #Predicate<WorkoutSet> { set in
+                set.exerciseNameSnapshot == exerciseName ||
+                (set.exerciseNameSnapshot == "" && set.exercise?.name == exerciseName)
+            },
+            side: side,
+            in: context
+        )
     }
 
     static func exerciseName(for set: WorkoutSet) -> String? {
@@ -285,13 +404,62 @@ enum WorkoutSetLogging {
     }
 
     private static func session(with id: UUID, in context: ModelContext) throws -> WorkoutSession {
-        let sessions = try context.fetch(FetchDescriptor<WorkoutSession>())
+        var descriptor = FetchDescriptor<WorkoutSession>(
+            predicate: #Predicate<WorkoutSession> { session in
+                session.id == id
+            }
+        )
+        descriptor.fetchLimit = 1
+        let sessions = try context.fetch(descriptor)
 
         guard let session = sessions.first(where: { $0.id == id }) else {
             throw WorkoutSetLoggingError.sessionNotFound
         }
 
         return session
+    }
+
+    private static func setsForSession(sessionID: UUID, in context: ModelContext) throws -> [WorkoutSet] {
+        try context.fetch(
+            FetchDescriptor<WorkoutSet>(
+                predicate: #Predicate<WorkoutSet> { set in
+                    set.session?.id == sessionID
+                },
+                sortBy: [
+                    SortDescriptor(\WorkoutSet.completedAt),
+                    SortDescriptor(\WorkoutSet.setIndex),
+                ]
+            )
+        )
+    }
+
+    private static func firstSetMatchingSide(
+        predicate: Predicate<WorkoutSet>,
+        side: Side?,
+        in context: ModelContext
+    ) throws -> WorkoutSet? {
+        var offset = 0
+
+        while true {
+            var descriptor = FetchDescriptor<WorkoutSet>(
+                predicate: predicate,
+                sortBy: [SortDescriptor(\WorkoutSet.completedAt, order: .reverse)]
+            )
+            descriptor.fetchLimit = lastSetFetchPageSize
+            descriptor.fetchOffset = offset
+
+            let page = try context.fetch(descriptor)
+
+            if let set = page.first(where: { $0.side == side }) {
+                return set
+            }
+
+            guard page.count == lastSetFetchPageSize else {
+                return nil
+            }
+
+            offset += lastSetFetchPageSize
+        }
     }
 
 }

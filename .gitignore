@@ -71,3 +71,4 @@ xcuserdata/
 # Local build outputs
 DerivedData/
 build/
+.xcodebuildmcp/

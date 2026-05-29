@@ -290,70 +290,20 @@ struct TemplateListView: View {
     }
 
     private var todayPlanCardResult: Result<TrainingSchedulePresentation.TodayPlanCard?, Error> {
-        _ = scheduleDataVersion
+        let data = TrainingScheduleDataSnapshot(
+            cycles: cycles,
+            slots: slots,
+            overrides: overrides,
+            sessions: sessions,
+            templates: templates
+        )
 
         return Result {
             try TrainingSchedulePresentation.todayCard(
                 now: AppLaunchConfiguration.now(),
-                in: modelContext
+                data: data
             )
         }
-    }
-
-    private var scheduleDataVersion: Int {
-        let cycleVersion = cycles.reduce(0) { partialResult, cycle in
-            partialResult
-                + cycle.id.uuidString.count
-                + Int(cycle.startDate.timeIntervalSince1970)
-                + cycle.timezoneIdentifier.count
-        }
-
-        let slotVersion = slots.reduce(0) { partialResult, slot in
-            partialResult
-                + (slot.cycle?.id.uuidString.count ?? 0)
-                + slot.orderIndex
-                + slot.kind.rawValue.count
-                + slot.templateStableID.count
-                + (slot.template?.stableID.count ?? 0)
-                + (slot.template?.name.count ?? 0)
-                + (slot.template?.colorHex?.count ?? 0)
-        }
-
-        let overrideVersion = overrides.reduce(0) { partialResult, dayOverride in
-            partialResult
-                + (dayOverride.cycle?.id.uuidString.count ?? 0)
-                + dayOverride.localDateKey.count
-                + dayOverride.cycleDateKey.count
-                + dayOverride.kind.rawValue.count
-                + dayOverride.templateStableID.count
-                + (dayOverride.template?.stableID.count ?? 0)
-                + (dayOverride.template?.name.count ?? 0)
-                + (dayOverride.template?.colorHex?.count ?? 0)
-        }
-
-        let sessionVersion = sessions.reduce(0) { partialResult, session in
-            partialResult
-                + session.id.uuidString.count
-                + (session.template?.stableID.count ?? 0)
-                + session.templateNameSnapshot.count
-                + session.templateStableIDSnapshot.count
-                + Int(session.startedAt.timeIntervalSince1970)
-                + Int(session.endedAt?.timeIntervalSince1970 ?? 0)
-        }
-
-        let templateVersion = templates.reduce(0) { partialResult, template in
-            partialResult
-                + template.name.count
-                + template.sortIndex
-                + template.stableID.count
-                + (template.colorHex?.count ?? 0)
-        }
-
-        return cycleVersion
-            + slotVersion
-            + overrideVersion
-            + sessionVersion
-            + templateVersion
     }
 
     private var pendingTemplate: Template? {
@@ -512,45 +462,25 @@ struct TemplateListView: View {
     }
 
     private func resolveConflictByEndingAndCreating() {
-        guard let template = pendingTemplate else {
-            pendingTemplateName = nil
-            return
-        }
-
-        do {
-            if let session = try WorkoutSessionLifecycle.currentOpenSession(in: modelContext) {
-                try WorkoutSessionLifecycle.end(session, in: modelContext)
-                UserNotificationRestScheduler.cancelPendingRestCompletionNotification()
-            }
-
-            let newSession = try WorkoutSessionLifecycle.createSession(
-                for: template,
-                in: modelContext,
-                startedAt: AppLaunchConfiguration.now()
-            )
-            pendingTemplateName = nil
-            path.append(.currentWorkout(sessionID: newSession.id))
-        } catch {
-            errorMessage = error.localizedDescription
-        }
+        resolveConflict(.endCurrentAndCreate)
     }
 
     private func resolveConflictByDiscardingAndCreating() {
+        resolveConflict(.discardCurrentAndCreate)
+    }
+
+    private func resolveConflict(_ choice: WorkoutConflictResolution.Choice) {
         guard let template = pendingTemplate else {
             pendingTemplateName = nil
             return
         }
 
         do {
-            if let session = try WorkoutSessionLifecycle.currentOpenSession(in: modelContext) {
-                try WorkoutSessionLifecycle.discard(session, in: modelContext)
-                UserNotificationRestScheduler.cancelPendingRestCompletionNotification()
-            }
-
-            let newSession = try WorkoutSessionLifecycle.createSession(
+            let newSession = try WorkoutConflictResolution.resolve(
+                choice: choice,
                 for: template,
                 in: modelContext,
-                startedAt: AppLaunchConfiguration.now()
+                resolvedAt: AppLaunchConfiguration.now()
             )
             pendingTemplateName = nil
             path.append(.currentWorkout(sessionID: newSession.id))

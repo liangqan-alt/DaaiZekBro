@@ -9,6 +9,14 @@ enum AppLaunchConfiguration {
         #endif
     }
 
+    static var forcesModelContainerFailure: Bool {
+        #if DEBUG
+        return ProcessInfo.processInfo.arguments.contains("-dz-force-container-failure")
+        #else
+        return false
+        #endif
+    }
+
     static var uiFixtureName: String? {
         #if DEBUG
         guard isUITesting else {

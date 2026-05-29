@@ -5,6 +5,90 @@
 
 ## [Unreleased]
 
+## [V0.33] - 2026-05-29
+
+### 新增
+- 增加 P3-3 排序行为核心测试，覆盖 `TemplateExercise` 按 `orderIndex` 与动作名排序，以及训练记录组按完成时间与组序号排序。
+
+### 变更
+- 统一重复的 `TemplateExercise` 排序 helper，服务层与相关测试 helper 复用同一排序逻辑；训练记录页 set 排序改为复用 `WorkoutSetLogging`，保持既有排序行为不变。
+
+## [V0.32] - 2026-05-29
+
+### 新增
+- 增加 P3-2 `WorkoutSet` cascade 核心测试，覆盖旧 store 迁移后 session/sets 可读与归属、删除 session 后 sets 级联删除、单独删除 set 不影响 session，以及 open session 删除保护不发生 partial delete。
+
+### 变更
+- SwiftData schema 升级到 `DaaiZekBroSchemaV2`，通过 `V1 -> V2` lightweight migration 将 `WorkoutSession -> WorkoutSet` 删除关系交给数据层 cascade 管理，删除 session 时不再手工 fetch/delete sets。
+
+## [V0.31] - 2026-05-29
+
+### 新增
+- 增加 SwiftData migration 入口回归测试，覆盖当前 schema 模型顺序、空 migration stage、容器创建路径携带 migration plan、file-backed store 重开，以及旧 store 打开后历史训练记录可读。
+
+### 变更
+- SwiftData 容器创建改为通过 `DaaiZekBroSchemaV1` 和 `DaaiZekBroMigrationPlan` 声明当前 schema 与迁移入口，为后续真实 schema 变更提供明确 stage，不改变当前模型关系、cascade 或业务语义。
+
+## [V0.30] - 2026-05-29
+
+### 新增
+- 增加 P3-1 session-local exercise identity 核心测试，覆盖同一 session 内同名动作、通知回跳、计数/删除重编号、side 推导、模板编辑后不漂移，以及旧 name-only 通知 payload 兼容。
+
+### 变更
+- 当前训练内动作定位改为使用 `(sessionID, exerciseOrderIndex)`，覆盖 route、ExerciseLogging、WorkoutSetLogging、当前训练计数、删除重编号、side inference 和休息通知 payload；旧通知 payload 仅在名称唯一匹配时回跳记录页，重复或失配时安全回到当前训练页。
+
+## [V0.29] - 2026-05-29
+
+### 新增
+- 增加 P2-5 训练安排导航解耦护栏与覆盖，明确本次只处理 `TrainingScheduleView` 训练日详情入口，并验证 Home 与 Settings 进入训练安排后的点击行为保持不变。
+
+### 变更
+- `TrainingScheduleView` 训练日详情跳转不再直接 mutate app-level `path`，避免该入口继续依赖 app 级导航栈写入。
+
+## [V0.28] - 2026-05-29
+
+### 新增
+- 增加 P2-4 回归覆盖，验证模板重命名或删除后首页今日计划卡刷新正确。
+
+### 变更
+- 训练安排展示刷新改为显式依赖 `TrainingScheduleDataSnapshot` 与调用方 `@Query` 数据来源，移除手动 invalidation/hash 桥接。
+
+## [V0.27] - 2026-05-28
+
+### 新增
+- 增加 P2-1 单日覆盖查询边界核心测试，覆盖重复 `cycleDateKey` 不新增记录、upsert 更新既有记录，以及 reset 只删除目标覆盖记录。
+
+### 变更
+- `TrainingDayOverride` 单日覆盖读取、upsert 和 reset 改为按唯一 `cycleDateKey` 精确查询，避免全表扫描后内存匹配，并保持覆盖语义不变。
+
+## [V0.26] - 2026-05-28
+
+### 新增
+- 增加 P1-4 查询边界核心测试，覆盖 session 内旧数据 fallback、多 open session 取最近启动，以及跨 session `lastSet` 历史预填等价性。
+
+### 变更
+- 优化训练记录高频查询路径：session 内 set 查询先按 session 缩小范围，当前未结束训练查询改为只取 open session，历史预填查询改为按动作身份或名称 fallback 缩小后分页匹配 side。
+
+## [V0.25] - 2026-05-28
+
+### 变更
+- 将模板列表进行中训练冲突解决事务移入可测试业务层，通知取消依赖改为可替换；整体成功后才取消休息通知并导航，失败时不取消通知、不导航，结束或丢弃旧 session 后新建失败再重试成功也会清理旧通知。
+
+## [V0.24] - 2026-05-28
+
+### 新增
+- 增加 `ModelContainer` 启动失败分支回归测试，并提供 DEBUG 专用 `-dz-force-container-failure` 启动参数用于可重复验证诊断界面。
+
+### 修复
+- SwiftData `ModelContainer` 初始化失败时不再通过 `fatalError` 崩溃，改为展示不依赖 `modelContext` 的可诊断失败界面且不自动擦除本地数据。
+
+## [V0.23] - 2026-05-28
+
+### 新增
+- 增加架构分级修订方案文档，明确 schema、cascade、导航、identity 等高风险轴的分级处理顺序、验收条件和迁移验证边界。
+- 建立 SwiftData schema 单一来源，生产容器、Preview 容器和测试 helper 共享同一模型清单。
+- 增加 schema 单一来源回归测试，覆盖重复清单扫描、in-memory 容器创建和 file-backed 容器创建。
+
 ## [V0.22] - 2026-05-27
 
 ### 新增
@@ -15,6 +99,7 @@
 
 ### 变更
 - 首页模板卡片改为读取已保存模板颜色渲染色条、色点和柔和底色；颜色缺失或无法识别时使用默认底色，不影响启动、排序或删除。
+- 精简并合并部分单元测试与 UI 测试用例，减少 CSV 导出、首页最近训练、训练安排和模板流程的重复测试维护面。
 
 ### 修复
 - 修复模板卡片左侧色条未参与圆角裁剪时可能露出直角的问题。

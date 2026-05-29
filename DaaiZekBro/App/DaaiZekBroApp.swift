@@ -12,39 +12,27 @@ import SwiftData
 struct DaaiZekBroApp: App {
     @UIApplicationDelegateAdaptor(NotificationAppDelegate.self) private var appDelegate
     @StateObject private var notificationRouter = NotificationNavigationRouter()
-
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Exercise.self,
-            Template.self,
-            TemplateExercise.self,
-            WorkoutSession.self,
-            TrainingCycle.self,
-            TrainingCycleSlot.self,
-            TrainingDayOverride.self,
-            WorkoutSessionExerciseSnapshot.self,
-            WorkoutSet.self,
-        ])
-        let modelConfiguration = ModelConfiguration(
-            schema: schema,
-            isStoredInMemoryOnly: AppLaunchConfiguration.isUITesting
-        )
-
-        do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
-        } catch {
-            fatalError("Could not create ModelContainer: \(error)")
-        }
-    }()
+    private let modelContainerResult = AppModelContainerLoader.live().load()
 
     var body: some Scene {
         WindowGroup {
+            rootView
+        }
+    }
+
+    @ViewBuilder
+    private var rootView: some View {
+        switch modelContainerResult {
+        case .success(let container):
             ContentView(notificationRouter: notificationRouter)
                 .tint(DZColor.pump500)
                 .onAppear {
                     appDelegate.notificationRouter = notificationRouter
                 }
+                .modelContainer(container)
+        case .failure(let failure):
+            ModelContainerFailureView(failure: failure)
+                .tint(DZColor.pump500)
         }
-        .modelContainer(sharedModelContainer)
     }
 }

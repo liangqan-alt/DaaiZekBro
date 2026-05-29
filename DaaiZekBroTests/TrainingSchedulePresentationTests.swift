@@ -216,28 +216,6 @@ struct TrainingSchedulePresentationTests {
         #expect(week.days[1].title == "Pull Prime")
     }
 
-    @Test func userTemplateWithoutColorUsesEmptyStyle() throws {
-        let context = try makeInMemoryContext()
-        let timeZone = try requiredTimeZone("Asia/Shanghai")
-        let custom = Template(name: "Custom", stableID: "template-custom")
-        context.insert(custom)
-        try context.save()
-
-        _ = try TrainingScheduleEngine.createCycle(
-            startDate: date(2026, 1, 1, 9, 0, 0, timeZone: timeZone),
-            timezoneIdentifier: timeZone.identifier,
-            slots: [TrainingScheduleSlotDraft(kind: .workout, template: custom)],
-            in: context
-        )
-
-        let week = try TrainingSchedulePresentation.week(
-            now: date(2026, 1, 1, 12, 0, 0, timeZone: timeZone),
-            in: context
-        )
-
-        #expect(week.days[0].colorStyle == .empty)
-    }
-
     @Test func todayUsesCycleTimezoneWhenDeviceInstantFallsOnDifferentUTCDate() throws {
         let context = try makeInMemoryContext()
         let cycleTimeZone = try requiredTimeZone("Asia/Shanghai")
@@ -295,10 +273,6 @@ struct TrainingSchedulePresentationTests {
         ) == nil)
     }
 
-    @Test func todayPlanCardBodyRouteIntentTargetsTrainingSchedule() {
-        #expect(TodayPlanCardRouteIntent.body == .trainingSchedule)
-    }
-
     @Test func todayPlanCardTrainingDayShowsTemplateLastCompletionAndStartAction() throws {
         let context = try makeInMemoryContext()
         let timeZone = try requiredTimeZone("Asia/Shanghai")
@@ -329,6 +303,70 @@ struct TrainingSchedulePresentationTests {
         #expect(card.colorStyle == .template(hex: "#D86838"))
         #expect(card.showsStartButton)
         #expect(card.startTemplate?.persistentModelID == fixtures.pushA.persistentModelID)
+    }
+
+    @Test func todayPlanCardSnapshotRefreshesWhenCycleSlotTemplateRenamed() throws {
+        let context = try makeInMemoryContext()
+        let timeZone = try requiredTimeZone("Asia/Shanghai")
+        let targetDate = try date(2026, 1, 1, 12, 0, 0, timeZone: timeZone)
+        let fixtures = try makeTemplates(in: context)
+        _ = try TrainingScheduleEngine.createCycle(
+            startDate: targetDate,
+            timezoneIdentifier: timeZone.identifier,
+            slots: [TrainingScheduleSlotDraft(kind: .workout, template: fixtures.pushA)],
+            in: context
+        )
+
+        let oldSnapshot = try makeSnapshot(in: context)
+        let oldCard = try #require(try TrainingSchedulePresentation.todayCard(now: targetDate, data: oldSnapshot))
+
+        #expect(oldCard.titleText == "Push A")
+        #expect(oldCard.startTemplate?.persistentModelID == fixtures.pushA.persistentModelID)
+
+        try TemplateLibrary.rename(fixtures.pushA, name: "Push Prime", in: context)
+
+        let refreshedSnapshot = try makeSnapshot(in: context)
+        let refreshedCard = try #require(try TrainingSchedulePresentation.todayCard(
+            now: targetDate,
+            data: refreshedSnapshot
+        ))
+
+        #expect(refreshedCard.titleText == "Push Prime")
+        #expect(refreshedCard.statusText == nil)
+        #expect(refreshedCard.colorStyle == .template(hex: "#D86838"))
+        #expect(refreshedCard.startTemplate?.persistentModelID == fixtures.pushA.persistentModelID)
+    }
+
+    @Test func todayPlanCardSnapshotRefreshesWhenCycleSlotTemplateDeleted() throws {
+        let context = try makeInMemoryContext()
+        let timeZone = try requiredTimeZone("Asia/Shanghai")
+        let targetDate = try date(2026, 1, 1, 12, 0, 0, timeZone: timeZone)
+        let fixtures = try makeTemplates(in: context)
+        _ = try TrainingScheduleEngine.createCycle(
+            startDate: targetDate,
+            timezoneIdentifier: timeZone.identifier,
+            slots: [TrainingScheduleSlotDraft(kind: .workout, template: fixtures.pushA)],
+            in: context
+        )
+
+        let oldSnapshot = try makeSnapshot(in: context)
+        let oldCard = try #require(try TrainingSchedulePresentation.todayCard(now: targetDate, data: oldSnapshot))
+
+        #expect(oldCard.titleText == "Push A")
+
+        try TemplateLibrary.delete(fixtures.pushA, in: context)
+
+        let refreshedSnapshot = try makeSnapshot(in: context)
+        let refreshedCard = try #require(try TrainingSchedulePresentation.todayCard(
+            now: targetDate,
+            data: refreshedSnapshot
+        ))
+
+        #expect(refreshedCard.titleText == "计划已失效")
+        #expect(refreshedCard.statusText == "计划已失效")
+        #expect(refreshedCard.colorStyle == .invalid)
+        #expect(refreshedCard.showsStartButton == false)
+        #expect(refreshedCard.startTemplate == nil)
     }
 
     @Test func todayPlanCardCoversCompletedOffPlanRestAndInvalidStates() throws {
@@ -557,6 +595,47 @@ struct TrainingSchedulePresentationTests {
         #expect(card.startTemplate?.persistentModelID == fixtures.pullA.persistentModelID)
     }
 
+    @Test func todayPlanCardSnapshotRefreshesWhenTodayOverrideTemplateDeleted() throws {
+        let context = try makeInMemoryContext()
+        let timeZone = try requiredTimeZone("Asia/Shanghai")
+        let targetDate = try date(2026, 1, 1, 12, 0, 0, timeZone: timeZone)
+        let fixtures = try makeTemplates(in: context)
+        let cycle = try TrainingScheduleEngine.createCycle(
+            startDate: targetDate,
+            timezoneIdentifier: timeZone.identifier,
+            slots: [TrainingScheduleSlotDraft(kind: .workout, template: fixtures.pushA)],
+            in: context
+        )
+        _ = try TrainingScheduleEngine.setOverride(
+            for: targetDate,
+            cycle: cycle,
+            kind: .workout,
+            template: fixtures.pullA,
+            now: targetDate,
+            in: context
+        )
+
+        let oldSnapshot = try makeSnapshot(in: context)
+        let oldCard = try #require(try TrainingSchedulePresentation.todayCard(now: targetDate, data: oldSnapshot))
+
+        #expect(oldCard.titleText == "Pull A")
+        #expect(oldCard.startTemplate?.persistentModelID == fixtures.pullA.persistentModelID)
+
+        try TemplateLibrary.delete(fixtures.pullA, in: context)
+
+        let refreshedSnapshot = try makeSnapshot(in: context)
+        let refreshedCard = try #require(try TrainingSchedulePresentation.todayCard(
+            now: targetDate,
+            data: refreshedSnapshot
+        ))
+
+        #expect(refreshedCard.titleText == "计划已失效")
+        #expect(refreshedCard.statusText == "计划已失效")
+        #expect(refreshedCard.colorStyle == .invalid)
+        #expect(refreshedCard.showsStartButton == false)
+        #expect(refreshedCard.startTemplate == nil)
+    }
+
     @Test func startFlowAfterTodayOverrideUsesOverrideTemplateAndCompletionUpdatesPresentation() throws {
         let context = try makeInMemoryContext()
         let timeZone = try requiredTimeZone("Asia/Shanghai")
@@ -731,20 +810,18 @@ struct TrainingSchedulePresentationTests {
         return fixtures
     }
 
+    private func makeSnapshot(in context: ModelContext) throws -> TrainingScheduleDataSnapshot {
+        try TrainingScheduleDataSnapshot(
+            cycles: context.fetch(FetchDescriptor<TrainingCycle>()),
+            slots: context.fetch(FetchDescriptor<TrainingCycleSlot>()),
+            overrides: context.fetch(FetchDescriptor<TrainingDayOverride>()),
+            sessions: context.fetch(FetchDescriptor<WorkoutSession>()),
+            templates: context.fetch(FetchDescriptor<Template>())
+        )
+    }
+
     private func makeInMemoryContext() throws -> ModelContext {
-        let schema = Schema([
-            Exercise.self,
-            Template.self,
-            TemplateExercise.self,
-            WorkoutSession.self,
-            TrainingCycle.self,
-            TrainingCycleSlot.self,
-            TrainingDayOverride.self,
-            WorkoutSessionExerciseSnapshot.self,
-            WorkoutSet.self,
-        ])
-        let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
-        let container = try ModelContainer(for: schema, configurations: [configuration])
+        let container = try DaaiZekBroSchema.makeModelContainer(isStoredInMemoryOnly: true)
 
         return ModelContext(container)
     }

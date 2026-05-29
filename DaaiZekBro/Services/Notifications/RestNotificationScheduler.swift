@@ -18,10 +18,26 @@ protocol RestNotificationScheduling {
     func replaceRestCompletionNotification(
         sessionID: UUID,
         exerciseName: String,
+        exerciseOrderIndex: Int?,
         deliverAt: Date
     ) async throws -> RestNotificationSchedulingResult
 
     func cancelRestCompletionNotification() async
+}
+
+extension RestNotificationScheduling {
+    func replaceRestCompletionNotification(
+        sessionID: UUID,
+        exerciseName: String,
+        deliverAt: Date
+    ) async throws -> RestNotificationSchedulingResult {
+        try await replaceRestCompletionNotification(
+            sessionID: sessionID,
+            exerciseName: exerciseName,
+            exerciseOrderIndex: nil,
+            deliverAt: deliverAt
+        )
+    }
 }
 
 struct UserNotificationRestScheduler: RestNotificationScheduling {
@@ -43,6 +59,20 @@ struct UserNotificationRestScheduler: RestNotificationScheduling {
         exerciseName: String,
         deliverAt: Date
     ) async throws -> RestNotificationSchedulingResult {
+        try await replaceRestCompletionNotification(
+            sessionID: sessionID,
+            exerciseName: exerciseName,
+            exerciseOrderIndex: nil,
+            deliverAt: deliverAt
+        )
+    }
+
+    func replaceRestCompletionNotification(
+        sessionID: UUID,
+        exerciseName: String,
+        exerciseOrderIndex: Int?,
+        deliverAt: Date
+    ) async throws -> RestNotificationSchedulingResult {
         try Task.checkCancellation()
         center.removePendingNotificationRequests(withIdentifiers: [Self.notificationIdentifier])
 
@@ -52,7 +82,11 @@ struct UserNotificationRestScheduler: RestNotificationScheduling {
 
         try Task.checkCancellation()
 
-        let payload = RestNotificationPayload(sessionID: sessionID, exerciseName: exerciseName)
+        let payload = RestNotificationPayload(
+            sessionID: sessionID,
+            exerciseName: exerciseName,
+            exerciseOrderIndex: exerciseOrderIndex
+        )
         let content = UNMutableNotificationContent()
         content.title = "休息结束"
         content.body = "\(exerciseName) 下一组可以开始了"

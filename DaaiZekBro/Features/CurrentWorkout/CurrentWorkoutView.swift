@@ -31,12 +31,13 @@ struct CurrentWorkoutView: View {
                                     NavigationLink(
                                         value: AppRoute.exerciseLogging(
                                             sessionID: sessionID,
+                                            exerciseOrderIndex: exercise.orderIndex,
                                             exerciseName: exercise.name
                                         )
                                     ) {
                                         ExerciseRow(
                                             exercise: exercise,
-                                            recordedSetCount: setCounts[exercise.name, default: 0]
+                                            recordedSetCount: setCounts[exercise.orderIndex, default: 0]
                                         )
                                     }
                                     .buttonStyle(.plain)
@@ -114,17 +115,11 @@ struct CurrentWorkoutView: View {
         return (try? WorkoutSessionLifecycle.exerciseDescriptors(for: session, in: modelContext)) ?? []
     }
 
-    private var setCounts: [String: Int] {
-        var counts: [String: Int] = [:]
+    private var setCounts: [Int: Int] {
+        var counts: [Int: Int] = [:]
 
         for set in sets where set.session?.id == sessionID {
-            let exerciseName = set.exerciseNameSnapshot.isEmpty ? set.exercise?.name : set.exerciseNameSnapshot
-
-            guard let exerciseName, exerciseName.isEmpty == false else {
-                continue
-            }
-
-            counts[exerciseName, default: 0] += 1
+            counts[set.exerciseOrderIndex, default: 0] += 1
         }
 
         return counts

@@ -14,6 +14,7 @@ struct RestTimerTests {
             restSeconds: 90,
             sessionID: sessionID,
             exerciseName: "固定器械卧推",
+            exerciseOrderIndex: nil,
             startedAt: now
         )
 
@@ -22,7 +23,28 @@ struct RestTimerTests {
         #expect(timer.state?.notificationStatus == .scheduled)
         #expect(scheduler.events == [
             .cancel,
-            .schedule(sessionID, "固定器械卧推", now.addingTimeInterval(90)),
+            .schedule(sessionID, nil, "固定器械卧推", now.addingTimeInterval(90)),
+        ])
+    }
+
+    @Test func startingTimerSchedulesNotificationWithExerciseOrderIndex() async throws {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let scheduler = FakeRestNotificationScheduler()
+        let timer = RestTimerModel(scheduler: scheduler, now: { now })
+        let sessionID = UUID()
+
+        await timer.start(
+            restSeconds: 90,
+            sessionID: sessionID,
+            exerciseName: "固定器械推肩",
+            exerciseOrderIndex: 2,
+            startedAt: now
+        )
+
+        #expect(timer.state?.exerciseOrderIndex == 2)
+        #expect(scheduler.events == [
+            .cancel,
+            .schedule(sessionID, 2, "固定器械推肩", now.addingTimeInterval(90)),
         ])
     }
 
@@ -36,6 +58,7 @@ struct RestTimerTests {
             restSeconds: 90,
             sessionID: sessionID,
             exerciseName: "固定器械卧推",
+            exerciseOrderIndex: nil,
             startedAt: currentDate
         )
 
@@ -47,9 +70,9 @@ struct RestTimerTests {
         #expect(timer.state?.endsAt == Date(timeIntervalSince1970: 1_120))
         #expect(scheduler.events == [
             .cancel,
-            .schedule(sessionID, "固定器械卧推", Date(timeIntervalSince1970: 1_090)),
+            .schedule(sessionID, nil, "固定器械卧推", Date(timeIntervalSince1970: 1_090)),
             .cancel,
-            .schedule(sessionID, "固定器械卧推", Date(timeIntervalSince1970: 1_120)),
+            .schedule(sessionID, nil, "固定器械卧推", Date(timeIntervalSince1970: 1_120)),
         ])
     }
 
@@ -63,6 +86,7 @@ struct RestTimerTests {
             restSeconds: 90,
             sessionID: sessionID,
             exerciseName: "固定器械卧推",
+            exerciseOrderIndex: nil,
             startedAt: now
         )
         await timer.skip()
@@ -70,7 +94,7 @@ struct RestTimerTests {
         #expect(timer.state == nil)
         #expect(scheduler.events == [
             .cancel,
-            .schedule(sessionID, "固定器械卧推", now.addingTimeInterval(90)),
+            .schedule(sessionID, nil, "固定器械卧推", now.addingTimeInterval(90)),
             .cancel,
         ])
     }
@@ -85,6 +109,7 @@ struct RestTimerTests {
             restSeconds: 90,
             sessionID: sessionID,
             exerciseName: "固定器械卧推",
+            exerciseOrderIndex: nil,
             startedAt: now
         )
         timer.stopForegroundTimerKeepingNotification()
@@ -92,7 +117,7 @@ struct RestTimerTests {
         #expect(timer.state == nil)
         #expect(scheduler.events == [
             .cancel,
-            .schedule(sessionID, "固定器械卧推", now.addingTimeInterval(90)),
+            .schedule(sessionID, nil, "固定器械卧推", now.addingTimeInterval(90)),
         ])
     }
 
@@ -105,6 +130,7 @@ struct RestTimerTests {
             restSeconds: 90,
             sessionID: UUID(),
             exerciseName: "固定器械卧推",
+            exerciseOrderIndex: nil,
             startedAt: now
         )
 
@@ -124,12 +150,14 @@ struct RestTimerTests {
             restSeconds: 90,
             sessionID: sessionID,
             exerciseName: "固定器械卧推",
+            exerciseOrderIndex: nil,
             startedAt: firstStart
         )
         await timer.start(
             restSeconds: 60,
             sessionID: sessionID,
             exerciseName: "固定器械卧推",
+            exerciseOrderIndex: nil,
             startedAt: secondStart
         )
 
@@ -137,9 +165,9 @@ struct RestTimerTests {
         #expect(timer.state?.endsAt == secondStart.addingTimeInterval(60))
         #expect(scheduler.events == [
             .cancel,
-            .schedule(sessionID, "固定器械卧推", firstStart.addingTimeInterval(90)),
+            .schedule(sessionID, nil, "固定器械卧推", firstStart.addingTimeInterval(90)),
             .cancel,
-            .schedule(sessionID, "固定器械卧推", secondStart.addingTimeInterval(60)),
+            .schedule(sessionID, nil, "固定器械卧推", secondStart.addingTimeInterval(60)),
         ])
     }
 
@@ -152,6 +180,7 @@ struct RestTimerTests {
             restSeconds: 90,
             sessionID: UUID(),
             exerciseName: "固定器械卧推",
+            exerciseOrderIndex: nil,
             startedAt: now
         )
 
@@ -185,7 +214,7 @@ struct RestTimerTests {
 private final class FakeRestNotificationScheduler: RestNotificationScheduling {
     enum Event: Equatable {
         case cancel
-        case schedule(UUID, String, Date)
+        case schedule(UUID, Int?, String, Date)
     }
 
     private let result: RestNotificationSchedulingResult
@@ -200,10 +229,24 @@ private final class FakeRestNotificationScheduler: RestNotificationScheduling {
         exerciseName: String,
         deliverAt: Date
     ) async throws -> RestNotificationSchedulingResult {
+        try await replaceRestCompletionNotification(
+            sessionID: sessionID,
+            exerciseName: exerciseName,
+            exerciseOrderIndex: nil,
+            deliverAt: deliverAt
+        )
+    }
+
+    func replaceRestCompletionNotification(
+        sessionID: UUID,
+        exerciseName: String,
+        exerciseOrderIndex: Int?,
+        deliverAt: Date
+    ) async throws -> RestNotificationSchedulingResult {
         events.append(.cancel)
 
         if result == .scheduled {
-            events.append(.schedule(sessionID, exerciseName, deliverAt))
+            events.append(.schedule(sessionID, exerciseOrderIndex, exerciseName, deliverAt))
         }
 
         return result
