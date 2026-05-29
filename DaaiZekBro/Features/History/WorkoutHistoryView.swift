@@ -223,7 +223,7 @@ struct WorkoutHistoryView: View {
 struct WorkoutHistoryDetailView: View {
     let sessionID: UUID
 
-    @AppStorage(WeightUnit.storageKey) private var weightUnitRawValue = WeightUnit.kilograms.rawValue
+    @Environment(\.modelContext) private var modelContext
     @Query private var sessions: [WorkoutSession]
     @Query private var sets: [WorkoutSet]
 
@@ -231,35 +231,25 @@ struct WorkoutHistoryDetailView: View {
         sessions.first { $0.id == sessionID }
     }
 
-    private var weightUnit: WeightUnit {
-        WeightUnit(rawValue: weightUnitRawValue) ?? .kilograms
-    }
-
-    private var weightUnitSelection: Binding<String> {
-        Binding(
-            get: { weightUnit.rawValue },
-            set: { weightUnitRawValue = $0 }
+    private var groups: [WorkoutHistoryExerciseGroup] {
+        WorkoutHistoryData.exerciseGroups(
+            for: sessionID,
+            sets: sets,
+            exerciseDescriptors: exerciseDescriptors
         )
     }
 
-    private var groups: [WorkoutHistoryExerciseGroup] {
-        WorkoutHistoryData.exerciseGroups(for: sessionID, sets: sets)
+    private var exerciseDescriptors: [WorkoutSessionExerciseDescriptor] {
+        guard let session, session.exerciseSnapshots.isEmpty == false else {
+            return []
+        }
+
+        return (try? WorkoutSessionLifecycle.exerciseDescriptors(for: session, in: modelContext)) ?? []
     }
 
     var body: some View {
         List {
             if let session {
-                Section {
-                    Picker("重量单位", selection: weightUnitSelection) {
-                        ForEach(WeightUnit.allCases, id: \.rawValue) { unit in
-                            Text(unit.rawValue).tag(unit.rawValue)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .tint(DZColor.pump500)
-                    .accessibilityIdentifier("history-detail-weight-unit-picker")
-                }
-
                 Section("训练") {
                     LabeledContent("模板", value: WorkoutHistoryData.templateName(for: session))
                     LabeledContent("开始", value: WorkoutHistoryDisplay.fullDateTimeText(for: session.startedAt, timeZoneIdentifier: session.timezoneIdentifier))
@@ -274,7 +264,7 @@ struct WorkoutHistoryDetailView: View {
                 ForEach(groups) { group in
                     Section(group.exerciseName) {
                         ForEach(group.sets) { set in
-                            WorkoutHistorySetRow(set: set, unit: weightUnit)
+                            WorkoutHistorySetRow(set: set, unit: group.weightUnit)
                         }
                     }
                 }

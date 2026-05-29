@@ -104,6 +104,43 @@ struct WorkoutSessionExerciseIdentityTests {
         #expect(try context.fetch(FetchDescriptor<WorkoutSet>()).isEmpty)
     }
 
+    @Test func poundsExerciseInputIsConvertedToKilogramsBeforePersistence() throws {
+        let context = try makeInMemoryContext()
+        let session = try makeSession(
+            exercises: [
+                Exercise(
+                    name: "Chest Press",
+                    defaultRestSeconds: 90,
+                    isUnilateral: false,
+                    weightUnit: .pounds
+                ),
+            ],
+            in: context
+        )
+        let descriptor = try #require(
+            try WorkoutSessionLifecycle.exerciseDescriptor(orderIndex: 0, for: session, in: context)
+        )
+        let viewModel = ExerciseLoggingViewModel()
+        viewModel.weightUnit = descriptor.weightUnit
+        viewModel.weightText = "100"
+        viewModel.repsText = "10"
+
+        let set = try WorkoutSetLogging.recordSet(
+            sessionID: session.id,
+            exerciseOrderIndex: descriptor.orderIndex,
+            exerciseName: descriptor.name,
+            weight: try #require(viewModel.parsedWeightKilograms),
+            reps: try #require(viewModel.parsedReps),
+            rpe: nil,
+            side: nil,
+            in: context
+        )
+
+        #expect(descriptor.weightUnit == .pounds)
+        #expect(abs(set.weight - 45.3592) < 0.000001)
+        #expect(set.reps == 10)
+    }
+
     @Test func orderIndexSideCountsInferenceAndDeleteRenumberStayIsolatedForDuplicateNames() throws {
         let context = try makeInMemoryContext()
         let session = try makeSession(
@@ -218,6 +255,8 @@ struct WorkoutSessionExerciseIdentityTests {
         try SeedData.writeAndDedup(in: context)
         let template = try template(named: "Push A", in: context)
         let benchPress = try exercise(named: "固定器械卧推", in: context)
+        benchPress.weightUnit = .pounds
+        try context.save()
         let session = try WorkoutSessionLifecycle.createSession(for: template, in: context)
         let links = try templateExerciseLinks(for: template, in: context)
 
@@ -225,6 +264,7 @@ struct WorkoutSessionExerciseIdentityTests {
         links[1].orderIndex = 0
         benchPress.name = "固定器械卧推 - Edited"
         benchPress.defaultRestSeconds = 333
+        benchPress.weightUnit = .kilograms
         try context.save()
 
         let descriptors = try WorkoutSessionLifecycle.exerciseDescriptors(for: session, in: context)
@@ -243,6 +283,7 @@ struct WorkoutSessionExerciseIdentityTests {
         #expect(descriptors.first?.orderIndex == 0)
         #expect(descriptors.first?.name == "固定器械卧推")
         #expect(descriptors.first?.defaultRestSeconds == 120)
+        #expect(descriptors.first?.weightUnit == .pounds)
         #expect(set.exerciseOrderIndex == 0)
         #expect(set.exerciseNameSnapshot == "固定器械卧推")
         #expect(try WorkoutSetLogging.sets(

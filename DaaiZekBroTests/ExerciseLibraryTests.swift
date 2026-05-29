@@ -139,6 +139,80 @@ struct ExerciseLibraryTests {
         #expect(try fetchExercises(in: context).map(\.name).sorted() == ["Bench Press", "bench press"])
     }
 
+    @Test func createAndUpdatePersistWeightUnitWithoutResettingExistingUnit() throws {
+        let context = try makeInMemoryContext()
+        let defaultUnitExercise = try ExerciseLibrary.create(
+            name: "Leg Press",
+            defaultRestSeconds: 90,
+            isUnilateral: false,
+            in: context
+        )
+        let poundsExercise = try ExerciseLibrary.create(
+            name: "Chest Press",
+            defaultRestSeconds: 90,
+            isUnilateral: false,
+            weightUnit: .pounds,
+            in: context
+        )
+
+        #expect(defaultUnitExercise.weightUnit == .kilograms)
+        #expect(poundsExercise.weightUnit == .pounds)
+
+        try ExerciseLibrary.update(
+            poundsExercise,
+            name: "Chest Press",
+            defaultRestSeconds: 120,
+            isUnilateral: false,
+            in: context
+        )
+
+        #expect(poundsExercise.defaultRestSeconds == 120)
+        #expect(poundsExercise.weightUnit == .pounds)
+
+        try ExerciseLibrary.update(
+            poundsExercise,
+            name: "Chest Press",
+            defaultRestSeconds: 120,
+            isUnilateral: false,
+            weightUnit: .kilograms,
+            in: context
+        )
+
+        #expect(poundsExercise.weightUnit == .kilograms)
+    }
+
+    @Test func openSessionAllowsWeightUnitUpdateAndPreservesSessionSnapshot() throws {
+        let context = try makeInMemoryContext()
+        let exercise = try ExerciseLibrary.create(
+            name: "Machine Chest Press",
+            defaultRestSeconds: 90,
+            isUnilateral: false,
+            weightUnit: .pounds,
+            in: context
+        )
+        let template = Template(name: "Push", exercises: [exercise])
+
+        context.insert(template)
+        try context.save()
+
+        let session = try WorkoutSessionLifecycle.createSession(for: template, in: context)
+
+        try ExerciseLibrary.update(
+            exercise,
+            name: "Machine Chest Press",
+            defaultRestSeconds: 90,
+            isUnilateral: false,
+            weightUnit: .kilograms,
+            in: context
+        )
+
+        let descriptors = try WorkoutSessionLifecycle.exerciseDescriptors(for: session, in: context)
+
+        #expect(exercise.weightUnit == .kilograms)
+        #expect(descriptors.map(\.weightUnit) == [.pounds])
+        #expect(try fetchSessionExerciseSnapshots(in: context).map(\.weightUnit) == [.pounds])
+    }
+
     @Test func openSessionBlocksRenameUnilateralChangeAndDeleteButAllowsRestOnlyUpdate() throws {
         let context = try makeInMemoryContext()
         let exercise = try ExerciseLibrary.create(

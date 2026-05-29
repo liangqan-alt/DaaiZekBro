@@ -87,7 +87,7 @@ private struct ExerciseLibraryRow: View {
                     .font(.body)
                     .foregroundStyle(DZColor.ink900)
 
-                Text("休息 \(exercise.defaultRestSeconds) 秒\(exercise.isUnilateral ? " · 单侧" : "")")
+                Text(metadataText)
                     .font(.caption)
                     .foregroundStyle(DZColor.ink700)
             }
@@ -95,6 +95,19 @@ private struct ExerciseLibraryRow: View {
             Spacer()
         }
         .padding(.vertical, 4)
+    }
+
+    private var metadataText: String {
+        var components = [
+            "休息 \(exercise.defaultRestSeconds) 秒",
+            exercise.weightUnit.label
+        ]
+
+        if exercise.isUnilateral {
+            components.append("单侧")
+        }
+
+        return components.joined(separator: " · ")
     }
 }
 
@@ -126,6 +139,7 @@ private struct ExerciseEditorView: View {
     @State private var name = ""
     @State private var defaultRestSeconds = 90
     @State private var isUnilateral = false
+    @State private var weightUnitRawValue = WeightUnit.defaultUnit.rawValue
     @State private var didLoadExercise = false
     @State private var errorMessage: String?
 
@@ -141,6 +155,19 @@ private struct ExerciseEditorView: View {
 
     private var trimmedName: String {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var weightUnit: WeightUnit {
+        WeightUnit(rawValue: weightUnitRawValue) ?? .defaultUnit
+    }
+
+    private var weightUnitSelection: Binding<String> {
+        Binding(
+            get: { weightUnit.rawValue },
+            set: { newValue in
+                weightUnitRawValue = WeightUnit(rawValue: newValue)?.rawValue ?? WeightUnit.defaultUnit.rawValue
+            }
+        )
     }
 
     private var canSave: Bool {
@@ -208,6 +235,24 @@ private struct ExerciseEditorView: View {
 
                     DZDivider()
 
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("重量单位")
+                            .foregroundStyle(DZColor.ink900)
+
+                        Picker("重量单位", selection: weightUnitSelection) {
+                            ForEach(WeightUnit.allCases, id: \.rawValue) { unit in
+                                Text(unit.label).tag(unit.rawValue)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .tint(DZColor.pump500)
+                        .accessibilityIdentifier("exercise-library-weight-unit-picker")
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+
+                    DZDivider()
+
                     Stepper {
                         defaultRestSeconds += 15
                     } onDecrement: {
@@ -251,6 +296,7 @@ private struct ExerciseEditorView: View {
         name = exercise.name
         defaultRestSeconds = exercise.defaultRestSeconds
         isUnilateral = exercise.isUnilateral
+        weightUnitRawValue = exercise.weightUnit.rawValue
         didLoadExercise = true
     }
 
@@ -261,6 +307,7 @@ private struct ExerciseEditorView: View {
                     name: trimmedName,
                     defaultRestSeconds: defaultRestSeconds,
                     isUnilateral: isUnilateral,
+                    weightUnit: weightUnit,
                     in: modelContext
                 )
             } else {
@@ -271,6 +318,7 @@ private struct ExerciseEditorView: View {
                     name: trimmedName,
                     defaultRestSeconds: defaultRestSeconds,
                     isUnilateral: isUnilateral,
+                    weightUnit: weightUnit,
                     in: modelContext
                 )
             }

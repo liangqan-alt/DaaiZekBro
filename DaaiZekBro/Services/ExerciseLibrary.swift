@@ -30,6 +30,7 @@ enum ExerciseLibrary {
         name: String,
         defaultRestSeconds: Int,
         isUnilateral: Bool,
+        weightUnit: WeightUnit = .defaultUnit,
         in context: ModelContext
     ) throws -> Exercise {
         let normalizedName = try validatedName(name, excluding: nil, in: context)
@@ -40,6 +41,7 @@ enum ExerciseLibrary {
             defaultRestSeconds: defaultRestSeconds,
             isUnilateral: isUnilateral
         )
+        exercise.weightUnit = weightUnit
 
         context.insert(exercise)
         try context.save()
@@ -52,6 +54,7 @@ enum ExerciseLibrary {
         name: String,
         defaultRestSeconds: Int,
         isUnilateral: Bool,
+        weightUnit: WeightUnit? = nil,
         in context: ModelContext
     ) throws {
         let normalizedName = try validatedName(name, excluding: exercise, in: context)
@@ -67,6 +70,7 @@ enum ExerciseLibrary {
         exercise.name = normalizedName
         exercise.defaultRestSeconds = defaultRestSeconds
         exercise.isUnilateral = isUnilateral
+        exercise.weightUnit = weightUnit ?? exercise.weightUnit
 
         try context.save()
     }

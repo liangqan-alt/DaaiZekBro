@@ -58,6 +58,7 @@ enum WorkoutSessionLifecycle {
                     exerciseNameSnapshot: descriptor.name,
                     defaultRestSecondsSnapshot: descriptor.defaultRestSeconds,
                     isUnilateralSnapshot: descriptor.isUnilateral,
+                    weightUnit: descriptor.weightUnit,
                     orderIndex: descriptor.orderIndex
                 )
             )
@@ -147,6 +148,7 @@ enum WorkoutSessionLifecycle {
                         name: snapshot.exerciseNameSnapshot,
                         defaultRestSeconds: snapshot.defaultRestSecondsSnapshot,
                         isUnilateral: snapshot.isUnilateralSnapshot,
+                        weightUnit: snapshot.weightUnit,
                         orderIndex: snapshot.orderIndex
                     )
                 }
@@ -188,6 +190,7 @@ enum WorkoutSessionLifecycle {
                 name: exercise.name,
                 defaultRestSeconds: exercise.defaultRestSeconds,
                 isUnilateral: exercise.isUnilateral,
+                weightUnit: exercise.weightUnit,
                 orderIndex: orderIndex
             )
         }

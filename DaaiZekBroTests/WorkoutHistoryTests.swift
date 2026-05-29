@@ -117,6 +117,87 @@ struct WorkoutHistoryTests {
         #expect(WorkoutHistoryData.templateName(for: session) == "Push A")
     }
 
+    @Test func exerciseGroupsUseSessionSnapshotUnitsWithOldDataFallbacks() {
+        let session = WorkoutSession(id: UUID(), templateNameSnapshot: "Mixed Units")
+        let kilogramsExercise = Exercise(name: "Leg Press", weightUnit: .kilograms)
+        let poundsExercise = Exercise(name: "Chest Press", weightUnit: .pounds)
+        let sets = [
+            WorkoutSet(
+                session: session,
+                exercise: kilogramsExercise,
+                exerciseNameSnapshot: "Leg Press",
+                exerciseOrderIndex: 0,
+                weight: 100,
+                reps: 8
+            ),
+            WorkoutSet(
+                session: session,
+                exercise: poundsExercise,
+                exerciseNameSnapshot: "Chest Press",
+                exerciseOrderIndex: 1,
+                weight: 45.3592,
+                reps: 10
+            ),
+            WorkoutSet(
+                session: session,
+                exercise: poundsExercise,
+                exerciseNameSnapshot: "Old Linked Row",
+                exerciseOrderIndex: 2,
+                weight: 22.6796,
+                reps: 12
+            ),
+            WorkoutSet(
+                session: session,
+                exerciseNameSnapshot: "Old Snapshot Only",
+                exerciseOrderIndex: 3,
+                weight: 30,
+                reps: 15
+            ),
+        ]
+        let descriptors = [
+            WorkoutSessionExerciseDescriptor(
+                exercise: kilogramsExercise,
+                name: "Leg Press",
+                defaultRestSeconds: 90,
+                isUnilateral: false,
+                weightUnit: .kilograms,
+                orderIndex: 0
+            ),
+            WorkoutSessionExerciseDescriptor(
+                exercise: poundsExercise,
+                name: "Chest Press",
+                defaultRestSeconds: 90,
+                isUnilateral: false,
+                weightUnit: .pounds,
+                orderIndex: 1
+            ),
+        ]
+
+        let groups = WorkoutHistoryData.exerciseGroups(
+            for: session.id,
+            sets: sets,
+            exerciseDescriptors: descriptors
+        )
+
+        #expect(groups.map(\.exerciseName) == [
+            "Leg Press",
+            "Chest Press",
+            "Old Linked Row",
+            "Old Snapshot Only",
+        ])
+        #expect(groups.map(\.weightUnit) == [.kilograms, .pounds, .pounds, .kilograms])
+        #expect(WorkoutHistoryDisplay.setValueText(
+            weightKilograms: groups[0].sets[0].weight,
+            reps: groups[0].sets[0].reps,
+            unit: groups[0].weightUnit
+        ) == "100 kg x 8")
+        #expect(WorkoutHistoryDisplay.setValueText(
+            weightKilograms: groups[1].sets[0].weight,
+            reps: groups[1].sets[0].reps,
+            unit: groups[1].weightUnit
+        ) == "100 lb x 10")
+    }
+
     private func date(
         _ year: Int,
         _ month: Int,

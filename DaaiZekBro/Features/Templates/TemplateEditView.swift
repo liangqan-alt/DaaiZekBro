@@ -200,6 +200,7 @@ private struct TemplateExercisePickerSheet: View {
     @Query private var templates: [Template]
     @Query private var exercises: [Exercise]
     @State private var newExerciseName = ""
+    @State private var newExerciseWeightUnitRawValue = WeightUnit.defaultUnit.rawValue
     @State private var selectedExerciseIDs: [PersistentIdentifier] = []
     @State private var createdExercises: [Exercise] = []
     @State private var errorMessage: String?
@@ -214,6 +215,19 @@ private struct TemplateExercisePickerSheet: View {
 
     private var canCreateExercise: Bool {
         trimmedNewExerciseName.isEmpty == false
+    }
+
+    private var newExerciseWeightUnit: WeightUnit {
+        WeightUnit(rawValue: newExerciseWeightUnitRawValue) ?? .defaultUnit
+    }
+
+    private var newExerciseWeightUnitSelection: Binding<String> {
+        Binding(
+            get: { newExerciseWeightUnit.rawValue },
+            set: { newValue in
+                newExerciseWeightUnitRawValue = WeightUnit(rawValue: newValue)?.rawValue ?? WeightUnit.defaultUnit.rawValue
+            }
+        )
     }
 
     private var canFinish: Bool {
@@ -306,6 +320,24 @@ private struct TemplateExercisePickerSheet: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
+
+            DZDivider()
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("重量单位")
+                    .foregroundStyle(DZColor.ink900)
+
+                Picker("重量单位", selection: newExerciseWeightUnitSelection) {
+                    ForEach(WeightUnit.allCases, id: \.rawValue) { unit in
+                        Text(unit.label).tag(unit.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .tint(DZColor.pump500)
+                .accessibilityIdentifier("template-exercise-picker-new-weight-unit")
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
         }
     }
 
@@ -359,6 +391,7 @@ private struct TemplateExercisePickerSheet: View {
                 name: trimmedNewExerciseName,
                 defaultRestSeconds: 90,
                 isUnilateral: false,
+                weightUnit: newExerciseWeightUnit,
                 in: modelContext
             )
 
@@ -417,7 +450,7 @@ private struct TemplateExerciseEditRow: View {
                     .font(.body.weight(.semibold))
                     .foregroundStyle(DZColor.ink900)
 
-                Text("休息 \(exercise.defaultRestSeconds) 秒\(exercise.isUnilateral ? " · 单侧" : "")")
+                Text(metadataText)
                     .font(.caption)
                     .foregroundStyle(DZColor.ink700)
             }
@@ -426,6 +459,19 @@ private struct TemplateExerciseEditRow: View {
         }
         .padding(.vertical, 4)
         .listRowBackground(DZColor.cream50)
+    }
+
+    private var metadataText: String {
+        var components = [
+            "休息 \(exercise.defaultRestSeconds) 秒",
+            exercise.weightUnit.label
+        ]
+
+        if exercise.isUnilateral {
+            components.append("单侧")
+        }
+
+        return components.joined(separator: " · ")
     }
 }
 
@@ -441,7 +487,7 @@ private struct TemplateExercisePickerRow: View {
                     .font(.body.weight(.semibold))
                     .foregroundStyle(isAlreadyAdded ? DZColor.fgFaint : DZColor.ink900)
 
-                Text("休息 \(exercise.defaultRestSeconds) 秒\(exercise.isUnilateral ? " · 单侧" : "")")
+                Text(metadataText)
                     .font(.caption)
                     .foregroundStyle(DZColor.ink700)
             }
@@ -471,6 +517,19 @@ private struct TemplateExercisePickerRow: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .contentShape(Rectangle())
+    }
+
+    private var metadataText: String {
+        var components = [
+            "休息 \(exercise.defaultRestSeconds) 秒",
+            exercise.weightUnit.label
+        ]
+
+        if exercise.isUnilateral {
+            components.append("单侧")
+        }
+
+        return components.joined(separator: " · ")
     }
 }
 

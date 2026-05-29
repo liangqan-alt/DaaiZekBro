@@ -57,31 +57,31 @@ struct SchemaSingleSourceTests {
     @Test func schemaModelListOrderMatchesCurrentStoreContract() {
         #expect(typeIdentifiers(DaaiZekBroSchema.modelTypes) == typeIdentifiers(expectedModelTypes))
         #expect(modelNames(DaaiZekBroSchemaV1.models) == expectedModelNames)
-        #expect(typeIdentifiers(DaaiZekBroSchemaV2.models) == typeIdentifiers(expectedModelTypes))
-        #expect(typeIdentifiers(DaaiZekBroSchema.modelTypes) == typeIdentifiers(DaaiZekBroSchemaV2.models))
+        #expect(modelNames(DaaiZekBroSchemaV2.models) == expectedModelNames)
+        #expect(typeIdentifiers(DaaiZekBroSchemaV3.models) == typeIdentifiers(expectedModelTypes))
+        #expect(typeIdentifiers(DaaiZekBroSchema.modelTypes) == typeIdentifiers(DaaiZekBroSchemaV3.models))
     }
 
-    @Test func migrationPlanDeclaresCurrentSchemaWithLightweightCascadeStage() {
+    @Test func migrationPlanDeclaresCurrentSchemaWithLightweightStages() {
         #expect(
             DaaiZekBroMigrationPlan.schemas.map { ObjectIdentifier($0) } == [
                 ObjectIdentifier(DaaiZekBroSchemaV1.self),
                 ObjectIdentifier(DaaiZekBroSchemaV2.self),
+                ObjectIdentifier(DaaiZekBroSchemaV3.self),
             ]
         )
-        #expect(DaaiZekBroMigrationPlan.stages.count == 1)
+        #expect(DaaiZekBroMigrationPlan.stages.count == 2)
 
-        guard let stage = DaaiZekBroMigrationPlan.stages.first else {
-            Issue.record("Expected one lightweight migration stage from V1 to V2")
-            return
-        }
-
-        guard case .lightweight(let fromVersion, let toVersion) = stage else {
-            Issue.record("Expected migration stage to be lightweight")
-            return
-        }
-
-        #expect(ObjectIdentifier(fromVersion) == ObjectIdentifier(DaaiZekBroSchemaV1.self))
-        #expect(ObjectIdentifier(toVersion) == ObjectIdentifier(DaaiZekBroSchemaV2.self))
+        assertLightweightStage(
+            DaaiZekBroMigrationPlan.stages[0],
+            from: DaaiZekBroSchemaV1.self,
+            to: DaaiZekBroSchemaV2.self
+        )
+        assertLightweightStage(
+            DaaiZekBroMigrationPlan.stages[1],
+            from: DaaiZekBroSchemaV2.self,
+            to: DaaiZekBroSchemaV3.self
+        )
     }
 
     @Test func sharedSchemaCreatesInMemoryContainer() throws {
@@ -96,6 +96,7 @@ struct SchemaSingleSourceTests {
 
         let exercises = try context.fetch(FetchDescriptor<Exercise>())
         #expect(exercises.map(\.name) == ["Schema Smoke"])
+        #expect(exercises.map(\.weightUnit) == [.kilograms])
     }
 
     @Test func sharedSchemaCreatesFileBackedContainer() throws {
@@ -202,6 +203,20 @@ struct SchemaSingleSourceTests {
         }
 
         return ObjectIdentifier(migrationPlan) == ObjectIdentifier(DaaiZekBroMigrationPlan.self)
+    }
+
+    private func assertLightweightStage(
+        _ stage: MigrationStage,
+        from expectedFromVersion: any VersionedSchema.Type,
+        to expectedToVersion: any VersionedSchema.Type
+    ) {
+        guard case .lightweight(let fromVersion, let toVersion) = stage else {
+            Issue.record("Expected migration stage to be lightweight")
+            return
+        }
+
+        #expect(ObjectIdentifier(fromVersion) == ObjectIdentifier(expectedFromVersion))
+        #expect(ObjectIdentifier(toVersion) == ObjectIdentifier(expectedToVersion))
     }
 
     private func removeStoreFiles(at storeURL: URL) {

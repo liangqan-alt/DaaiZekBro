@@ -196,7 +196,7 @@ private struct ExerciseRow: View {
                     .font(.body)
                     .foregroundStyle(DZColor.ink900)
 
-                Text("休息 \(exercise.defaultRestSeconds) 秒\(exercise.isUnilateral ? " · 单侧" : "")")
+                Text(metadataText)
                     .font(.caption)
                     .foregroundStyle(DZColor.ink700)
             }
@@ -214,5 +214,18 @@ private struct ExerciseRow: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
         .contentShape(Rectangle())
+    }
+
+    private var metadataText: String {
+        var parts = [
+            "休息 \(exercise.defaultRestSeconds) 秒",
+            "单位 \(exercise.weightUnit.label)",
+        ]
+
+        if exercise.isUnilateral {
+            parts.append("单侧")
+        }
+
+        return parts.joined(separator: " · ")
     }
 }

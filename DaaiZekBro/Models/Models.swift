@@ -10,9 +10,8 @@ enum WeightUnit: String, CaseIterable, Codable, Identifiable {
     case kilograms = "kg"
     case pounds = "lb"
 
-    static let defaultUnit: WeightUnit = .kilograms
-    static let storageKey = "weightUnit"
-    private static let kilogramsPerPound = 0.453592
+    nonisolated static let defaultUnit: WeightUnit = .kilograms
+    private nonisolated static let kilogramsPerPound = 0.453592
 
     var id: String { rawValue }
     var label: String { rawValue }
@@ -63,12 +62,28 @@ final class Exercise {
     var name: String = ""
     var defaultRestSeconds: Int = 90
     var isUnilateral: Bool = false
+    var weightUnitRawValue: String = WeightUnit.defaultUnit.rawValue
     var templates: [Template] = []
 
-    init(name: String = "", defaultRestSeconds: Int = 90, isUnilateral: Bool = false) {
+    var weightUnit: WeightUnit {
+        get {
+            WeightUnit(rawValue: weightUnitRawValue) ?? .defaultUnit
+        }
+        set {
+            weightUnitRawValue = newValue.rawValue
+        }
+    }
+
+    init(
+        name: String = "",
+        defaultRestSeconds: Int = 90,
+        isUnilateral: Bool = false,
+        weightUnit: WeightUnit = .defaultUnit
+    ) {
         self.name = name
         self.defaultRestSeconds = defaultRestSeconds
         self.isUnilateral = isUnilateral
+        self.weightUnitRawValue = weightUnit.rawValue
     }
 }
 
@@ -305,7 +320,17 @@ final class WorkoutSessionExerciseSnapshot {
     var exerciseNameSnapshot: String = ""
     var defaultRestSecondsSnapshot: Int = 90
     var isUnilateralSnapshot: Bool = false
+    var weightUnitRawValueSnapshot: String = WeightUnit.defaultUnit.rawValue
     var orderIndex: Int = 0
+
+    var weightUnit: WeightUnit {
+        get {
+            WeightUnit(rawValue: weightUnitRawValueSnapshot) ?? .defaultUnit
+        }
+        set {
+            weightUnitRawValueSnapshot = newValue.rawValue
+        }
+    }
 
     init(
         session: WorkoutSession? = nil,
@@ -313,6 +338,7 @@ final class WorkoutSessionExerciseSnapshot {
         exerciseNameSnapshot: String = "",
         defaultRestSecondsSnapshot: Int = 90,
         isUnilateralSnapshot: Bool = false,
+        weightUnit: WeightUnit = .defaultUnit,
         orderIndex: Int = 0
     ) {
         self.session = session
@@ -320,6 +346,7 @@ final class WorkoutSessionExerciseSnapshot {
         self.exerciseNameSnapshot = exerciseNameSnapshot
         self.defaultRestSecondsSnapshot = defaultRestSecondsSnapshot
         self.isUnilateralSnapshot = isUnilateralSnapshot
+        self.weightUnitRawValueSnapshot = weightUnit.rawValue
         self.orderIndex = orderIndex
     }
 }
@@ -329,6 +356,7 @@ struct WorkoutSessionExerciseDescriptor: Identifiable {
     let name: String
     let defaultRestSeconds: Int
     let isUnilateral: Bool
+    let weightUnit: WeightUnit
     let orderIndex: Int
 
     var id: String {

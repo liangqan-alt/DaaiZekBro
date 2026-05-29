@@ -3,9 +3,8 @@ import Testing
 @testable import DaaiZekBro
 
 struct WeightDisplayTests {
-    @Test func weightUnitMetadataMatchesStoragePreferenceContract() {
+    @Test func weightUnitMetadataMatchesExerciseUnitContract() {
         #expect(WeightUnit.defaultUnit == .kilograms)
-        #expect(WeightUnit.storageKey == "weightUnit")
         #expect(WeightUnit.kilograms.rawValue == "kg")
         #expect(WeightUnit.pounds.rawValue == "lb")
         #expect(WeightUnit.kilograms.label == "kg")

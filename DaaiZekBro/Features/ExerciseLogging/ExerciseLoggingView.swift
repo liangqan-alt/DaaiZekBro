@@ -12,7 +12,6 @@ struct ExerciseLoggingView: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var sessions: [WorkoutSession]
     @Query private var sets: [WorkoutSet]
-    @AppStorage(WeightUnit.storageKey) private var weightUnitRawValue = WeightUnit.kilograms.rawValue
     @State private var viewModel = ExerciseLoggingViewModel()
     @State private var pendingDeleteSet: WorkoutSet?
     @StateObject private var restTimer = RestTimerModel()
@@ -58,7 +57,7 @@ struct ExerciseLoggingView: View {
             syncWeightUnitPreference()
             loadInitialDraft()
         }
-        .onChange(of: weightUnitRawValue) { _, _ in
+        .onChange(of: currentWeightUnit) { _, _ in
             syncWeightUnitPreference()
         }
         .onChange(of: viewModel.selectedSide) { _, _ in
@@ -131,15 +130,8 @@ struct ExerciseLoggingView: View {
         viewModel.currentSide(isUnilateral: exercise?.isUnilateral == true)
     }
 
-    private var preferredWeightUnit: WeightUnit {
-        WeightUnit(rawValue: weightUnitRawValue) ?? .kilograms
-    }
-
-    private var weightUnitSelection: Binding<String> {
-        Binding(
-            get: { preferredWeightUnit.rawValue },
-            set: { weightUnitRawValue = $0 }
-        )
+    private var currentWeightUnit: WeightUnit {
+        exercise?.weightUnit ?? .kilograms
     }
 
     private var canCompleteSet: Bool {
@@ -246,7 +238,7 @@ struct ExerciseLoggingView: View {
 
                 DZInfoRow(
                     "上次\(sidePrefix)",
-                    value: "\(displayWeight(lastReferenceSet.weight, unit: preferredWeightUnit)) × \(lastReferenceSet.reps)",
+                    value: "\(displayWeight(lastReferenceSet.weight, unit: currentWeightUnit)) × \(lastReferenceSet.reps)",
                     showsValueAsNumber: true
                 )
             } else {
@@ -261,25 +253,12 @@ struct ExerciseLoggingView: View {
         DZSection("本组") {
             NumericEntryRow(
                 title: "重量",
-                unit: preferredWeightUnit.label,
+                unit: currentWeightUnit.label,
                 text: $viewModel.weightText,
                 keyboardType: .decimalPad,
                 decrement: { viewModel.adjustWeight(by: -2.5) },
                 increment: { viewModel.adjustWeight(by: 2.5) }
             )
-
-            DZDivider()
-
-            Picker("重量单位", selection: weightUnitSelection) {
-                ForEach(WeightUnit.allCases, id: \.rawValue) { unit in
-                    Text(unit.label).tag(unit.rawValue)
-                }
-            }
-            .pickerStyle(.segmented)
-            .tint(DZColor.pump500)
-            .accessibilityIdentifier("weight-unit-picker")
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
 
             DZDivider()
 
@@ -397,8 +376,8 @@ struct ExerciseLoggingView: View {
                     .padding(14)
             } else if exercise.isUnilateral {
                 HStack(alignment: .top, spacing: 12) {
-                    RecordedSetColumn(title: "左", sets: leftSets, weightUnit: preferredWeightUnit, onDelete: confirmDelete)
-                    RecordedSetColumn(title: "右", sets: rightSets, weightUnit: preferredWeightUnit, onDelete: confirmDelete)
+                    RecordedSetColumn(title: "左", sets: leftSets, weightUnit: exercise.weightUnit, onDelete: confirmDelete)
+                    RecordedSetColumn(title: "右", sets: rightSets, weightUnit: exercise.weightUnit, onDelete: confirmDelete)
                 }
                 .padding(8)
             } else {
@@ -409,7 +388,7 @@ struct ExerciseLoggingView: View {
 
                     let set = bilateralSets[index]
 
-                    LoggedSetButton(set: set, showsSide: false, weightUnit: preferredWeightUnit) {
+                    LoggedSetButton(set: set, showsSide: false, weightUnit: exercise.weightUnit) {
                         confirmDelete(set)
                     }
                 }
@@ -418,12 +397,13 @@ struct ExerciseLoggingView: View {
     }
 
     private func syncWeightUnitPreference() {
-        viewModel.weightUnit = preferredWeightUnit
+        viewModel.weightUnit = currentWeightUnit
     }
 
     private func loadInitialDraft() {
         guard viewModel.didLoadInitialDraft == false else { return }
 
+        syncWeightUnitPreference()
         syncSideWithRecordedSets()
         prefillFromLastSet()
         viewModel.didLoadInitialDraft = true

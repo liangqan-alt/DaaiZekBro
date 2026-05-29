@@ -48,6 +48,7 @@ struct WorkoutHistoryMonth: Hashable, Comparable {
 struct WorkoutHistoryExerciseGroup: Identifiable {
     let id: String
     let exerciseName: String
+    let weightUnit: WeightUnit
     let sets: [WorkoutSet]
 }
 
@@ -120,24 +121,41 @@ enum WorkoutHistoryData {
         }
     }
 
-    static func exerciseGroups(for sessionID: UUID, sets: [WorkoutSet]) -> [WorkoutHistoryExerciseGroup] {
+    static func exerciseGroups(
+        for sessionID: UUID,
+        sets: [WorkoutSet],
+        exerciseDescriptors: [WorkoutSessionExerciseDescriptor] = []
+    ) -> [WorkoutHistoryExerciseGroup] {
         let orderedSets = sets
             .filter { $0.session?.id == sessionID }
             .sorted { lhs, rhs in
                 areSetsInDisplayOrder(lhs, rhs)
             }
+        let descriptorUnits = descriptorUnitsByGroupID(exerciseDescriptors)
         var groups: [WorkoutHistoryExerciseGroup] = []
 
         for set in orderedSets {
             let exerciseName = exerciseName(for: set)
-            let groupID = "\(set.exerciseOrderIndex)-\(exerciseName)"
+            let groupID = exerciseGroupID(orderIndex: set.exerciseOrderIndex, exerciseName: exerciseName)
 
             if let index = groups.firstIndex(where: { $0.id == groupID }) {
                 var updatedSets = groups[index].sets
                 updatedSets.append(set)
-                groups[index] = WorkoutHistoryExerciseGroup(id: groupID, exerciseName: exerciseName, sets: updatedSets)
+                groups[index] = WorkoutHistoryExerciseGroup(
+                    id: groupID,
+                    exerciseName: exerciseName,
+                    weightUnit: groups[index].weightUnit,
+                    sets: updatedSets
+                )
             } else {
-                groups.append(WorkoutHistoryExerciseGroup(id: groupID, exerciseName: exerciseName, sets: [set]))
+                groups.append(
+                    WorkoutHistoryExerciseGroup(
+                        id: groupID,
+                        exerciseName: exerciseName,
+                        weightUnit: descriptorUnits[groupID] ?? set.exercise?.weightUnit ?? .kilograms,
+                        sets: [set]
+                    )
+                )
             }
         }
 
@@ -187,6 +205,26 @@ enum WorkoutHistoryData {
         let components = calendar.dateComponents([.year, .month, .day], from: summary.startedAt)
 
         return "\(components.year ?? 0)-\(components.month ?? 0)-\(components.day ?? 0)-\(calendar.timeZone.identifier)"
+    }
+
+    private static func descriptorUnitsByGroupID(
+        _ descriptors: [WorkoutSessionExerciseDescriptor]
+    ) -> [String: WeightUnit] {
+        var unitsByGroupID: [String: WeightUnit] = [:]
+
+        for descriptor in descriptors {
+            let groupID = exerciseGroupID(orderIndex: descriptor.orderIndex, exerciseName: descriptor.name)
+
+            if unitsByGroupID[groupID] == nil {
+                unitsByGroupID[groupID] = descriptor.weightUnit
+            }
+        }
+
+        return unitsByGroupID
+    }
+
+    private static func exerciseGroupID(orderIndex: Int, exerciseName: String) -> String {
+        "\(orderIndex)-\(exerciseName)"
     }
 
     private static func areSetsInDisplayOrder(_ lhs: WorkoutSet, _ rhs: WorkoutSet) -> Bool {
