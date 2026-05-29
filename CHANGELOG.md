@@ -5,6 +5,14 @@
 
 ## [Unreleased]
 
+## [V0.32] - 2026-05-29
+
+### 新增
+- 增加 P3-2 `WorkoutSet` cascade 核心测试，覆盖旧 store 迁移后 session/sets 可读与归属、删除 session 后 sets 级联删除、单独删除 set 不影响 session，以及 open session 删除保护不发生 partial delete。
+
+### 变更
+- SwiftData schema 升级到 `DaaiZekBroSchemaV2`，通过 `V1 -> V2` lightweight migration 将 `WorkoutSession -> WorkoutSet` 删除关系交给数据层 cascade 管理，删除 session 时不再手工 fetch/delete sets。
+
 ## [V0.31] - 2026-05-29
 
 ### 新增
