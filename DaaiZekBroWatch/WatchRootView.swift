@@ -4,7 +4,7 @@ struct WatchRootView: View {
     @ObservedObject var sessionManager: WatchSessionManager
 
     var body: some View {
-        WatchTrainingSurface(displayState: sessionManager.displayState) {
+        WatchTrainingSurface(sessionManager: sessionManager) {
             sessionManager.requestTrainingState()
         }
         .onAppear {
@@ -16,46 +16,54 @@ struct WatchRootView: View {
 }
 
 private struct WatchTrainingSurface: View {
-    let displayState: WatchSessionManager.DisplayState
+    @ObservedObject var sessionManager: WatchSessionManager
     let refresh: () -> Void
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 8) {
-                switch displayState {
-                case .waitingToStart:
-                    WatchWaitingStateView(
-                        symbol: "figure.strengthtraining.traditional",
-                        title: "等待开始",
-                        message: "在 iPhone 上开始训练后即可在此查看",
-                        showsRefresh: false,
-                        refresh: refresh
-                    )
-                case .waitingForTrainingData:
-                    WatchWaitingStateView(
-                        symbol: "iphone.gen2.radiowaves.left.and.right",
-                        title: "等待训练数据",
-                        message: "已检测到训练，正在接收动作列表",
-                        showsRefresh: true,
-                        refresh: refresh
-                    )
-                case .unreachableNoSnapshot:
-                    WatchWaitingStateView(
-                        symbol: "wifi.slash",
-                        title: "等待开始",
-                        message: "与 iPhone 暂不可达，且无本地训练数据",
-                        showsRefresh: true,
-                        refresh: refresh
-                    )
-                case .training(let snapshot, let isOffline):
-                    WatchTrainingListView(snapshot: snapshot, isOffline: isOffline)
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    switch sessionManager.displayState {
+                    case .waitingToStart:
+                        WatchWaitingStateView(
+                            symbol: "figure.strengthtraining.traditional",
+                            title: "等待开始",
+                            message: "在 iPhone 上开始训练后即可在此查看",
+                            showsRefresh: false,
+                            refresh: refresh
+                        )
+                    case .waitingForTrainingData:
+                        WatchWaitingStateView(
+                            symbol: "iphone.gen2.radiowaves.left.and.right",
+                            title: "等待训练数据",
+                            message: "已检测到训练，正在接收动作列表",
+                            showsRefresh: true,
+                            refresh: refresh
+                        )
+                    case .unreachableNoSnapshot:
+                        WatchWaitingStateView(
+                            symbol: "wifi.slash",
+                            title: "等待开始",
+                            message: "与 iPhone 暂不可达，且无本地训练数据",
+                            showsRefresh: true,
+                            refresh: refresh
+                        )
+                    case .training(let snapshot, let isOffline):
+                        WatchTrainingListView(
+                            snapshot: snapshot,
+                            isOffline: isOffline,
+                            sessionManager: sessionManager
+                        )
+                    }
                 }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+            .background(WatchPalette.oledBlack.ignoresSafeArea())
+            .scrollContentBackground(.hidden)
+            .tint(WatchPalette.pump)
         }
         .background(WatchPalette.oledBlack.ignoresSafeArea())
-        .scrollContentBackground(.hidden)
         .tint(WatchPalette.pump)
     }
 }
@@ -63,6 +71,7 @@ private struct WatchTrainingSurface: View {
 private struct WatchTrainingListView: View {
     let snapshot: WatchWorkoutSnapshot
     let isOffline: Bool
+    @ObservedObject var sessionManager: WatchSessionManager
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -74,7 +83,16 @@ private struct WatchTrainingListView: View {
 
             VStack(spacing: 6) {
                 ForEach(snapshot.exercises, id: \.exerciseOrderIndex) { exercise in
-                    WatchExerciseRow(exercise: exercise)
+                    NavigationLink {
+                        WatchRecordFlowView(
+                            snapshot: snapshot,
+                            exercise: exercise,
+                            sessionManager: sessionManager
+                        )
+                    } label: {
+                        WatchExerciseRow(exercise: exercise)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
         }
@@ -174,9 +192,11 @@ private struct WatchExerciseRow: View {
     }
 
     private var metadataText: String {
-        let sideText = exercise.isUnilateral ? "单侧" : "双侧"
+        if exercise.isUnilateral {
+            return "单侧 · L \(exercise.leftCompletedSetCount) / R \(exercise.rightCompletedSetCount) · \(exercise.weightUnit)"
+        }
 
-        return "\(sideText) · \(exercise.defaultRestSeconds) 秒 · \(exercise.weightUnit)"
+        return "双侧 · \(exercise.defaultRestSeconds) 秒 · \(exercise.weightUnit)"
     }
 }
 
@@ -225,7 +245,7 @@ private struct WatchWaitingStateView: View {
     }
 }
 
-private enum WatchPalette {
+enum WatchPalette {
     static let oledBlack = Color(red: 0.0, green: 0.0, blue: 0.0)
     static let row = Color(red: 0.141, green: 0.114, blue: 0.082)
     static let banner = Color.white.opacity(0.08)
@@ -237,6 +257,7 @@ private enum WatchPalette {
     static let pumpBackground = pump.opacity(0.18)
     static let caramel = Color(red: 0.851, green: 0.651, blue: 0.431)
     static let sync = Color(red: 0.510, green: 0.761, blue: 0.353)
+    static let syncBackground = sync.opacity(0.14)
     static let unreachable = Color(red: 0.549, green: 0.514, blue: 0.471)
     static let offline = Color(red: 0.718, green: 0.675, blue: 0.612)
     static let offlineBackground = Color(red: 0.984, green: 0.961, blue: 0.914).opacity(0.08)
@@ -272,7 +293,7 @@ private enum WatchPalette {
     ))
 }
 
-private extension WatchWorkoutSnapshot {
+extension WatchWorkoutSnapshot {
     static let preview = WatchWorkoutSnapshot(
         sessionID: UUID().uuidString,
         sessionName: "Push A",
@@ -284,7 +305,8 @@ private extension WatchWorkoutSnapshot {
                 completedSetCount: 3,
                 weightUnit: "kg",
                 isUnilateral: false,
-                defaultRestSeconds: 90
+                defaultRestSeconds: 90,
+                lastSetReference: .init(weight: 45, reps: 10, source: "currentSession")
             ),
             WatchWorkoutSnapshot.Exercise(
                 exerciseOrderIndex: 1,
@@ -292,7 +314,10 @@ private extension WatchWorkoutSnapshot {
                 completedSetCount: 1,
                 weightUnit: "kg",
                 isUnilateral: true,
-                defaultRestSeconds: 60
+                defaultRestSeconds: 60,
+                leftCompletedSetCount: 1,
+                rightCompletedSetCount: 0,
+                lastSetReference: .init(weight: 8, reps: 12, source: "history")
             ),
             WatchWorkoutSnapshot.Exercise(
                 exerciseOrderIndex: 2,

@@ -23,6 +23,35 @@ final class WatchSessionManager: NSObject, ObservableObject {
         case cached
     }
 
+    enum SetSubmissionError: Error, LocalizedError, Equatable {
+        case unavailable
+        case notReachable
+        case missingLiveSnapshot
+        case invalidDraft
+        case invalidReply
+        case rejected(String)
+        case transportFailed(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .unavailable:
+                "手表同步不可用"
+            case .notReachable:
+                "手机暂不可达"
+            case .missingLiveSnapshot:
+                "等待实时训练数据"
+            case .invalidDraft:
+                "记录内容无效"
+            case .invalidReply:
+                "同步回应异常"
+            case .rejected(let message):
+                message
+            case .transportFailed:
+                "同步失败"
+            }
+        }
+    }
+
     @Published private(set) var connectionStatus: ConnectionStatus
     @Published private(set) var isTraining: Bool?
     @Published private(set) var snapshot: WatchWorkoutSnapshot?
@@ -76,6 +105,10 @@ final class WatchSessionManager: NSObject, ObservableObject {
         }
 
         return isTraining ? "训练中" : "空闲"
+    }
+
+    var canSubmitSet: Bool {
+        connectionStatus == .reachable && snapshotSource == .live && snapshot != nil
     }
 
     var displayState: DisplayState {
@@ -144,6 +177,95 @@ final class WatchSessionManager: NSObject, ObservableObject {
                 self?.updateConnectionStatus(.failed)
             }
         )
+    }
+
+    func inferredNextSide(for exercise: WatchWorkoutSnapshot.Exercise) -> String {
+        let currentExercise = snapshot?.exercises.first {
+            $0.exerciseOrderIndex == exercise.exerciseOrderIndex
+        } ?? exercise
+
+        return WatchRecordDraft.inferredNextSide(
+            leftCompletedSetCount: currentExercise.leftCompletedSetCount,
+            rightCompletedSetCount: currentExercise.rightCompletedSetCount
+        )
+    }
+
+    @MainActor
+    func submitSet(
+        _ draft: WatchRecordDraft,
+        sessionID: String,
+        exercise: WatchWorkoutSnapshot.Exercise
+    ) async throws {
+        guard let session else {
+            updateConnectionStatus(.unsupported)
+            throw SetSubmissionError.unavailable
+        }
+
+        let nextStatus = connectionStatus(for: session)
+        connectionStatus = nextStatus
+        restoreCachedSnapshotIfNeeded(for: nextStatus)
+
+        guard session.activationState == .activated, session.isReachable else {
+            throw SetSubmissionError.notReachable
+        }
+
+        guard draft.canSubmit(isUnilateral: exercise.isUnilateral) else {
+            throw SetSubmissionError.invalidDraft
+        }
+
+        guard snapshotSource == .live,
+              let previousSnapshot = snapshot,
+              previousSnapshot.sessionID == sessionID,
+              previousSnapshot.exercises.contains(where: { $0.exerciseOrderIndex == exercise.exerciseOrderIndex }) else {
+            throw SetSubmissionError.missingLiveSnapshot
+        }
+
+        let previousSource = snapshotSource
+        applyOptimisticSubmission(draft, exercise: exercise, to: previousSnapshot)
+
+        let clientSubmissionID = UUID().uuidString
+        let submittedAt = Date()
+        let message = WatchSetSubmissionMessage(
+            clientSubmissionID: clientSubmissionID,
+            sentAt: submittedAt.timeIntervalSince1970,
+            sessionID: sessionID,
+            exerciseOrderIndex: exercise.exerciseOrderIndex,
+            exerciseName: exercise.name,
+            weight: draft.weight,
+            weightUnit: exercise.weightUnit,
+            reps: draft.reps,
+            rpe: draft.rpe,
+            side: draft.side,
+            completedAt: submittedAt.timeIntervalSince1970
+        )
+
+        do {
+            let reply = try await sendSubmissionMessage(message.propertyList, using: session)
+            let ack = try WatchSetSubmissionAck(propertyList: reply)
+
+            guard ack.clientSubmissionID == clientSubmissionID else {
+                throw SetSubmissionError.invalidReply
+            }
+
+            switch ack.status {
+            case .saved:
+                if let snapshot {
+                    cache(snapshot)
+                }
+                break
+            case .rejected:
+                throw SetSubmissionError.rejected(ack.message ?? "同步失败")
+            }
+        } catch let error as SetSubmissionError {
+            restoreSnapshot(previousSnapshot, source: previousSource)
+            throw error
+        } catch is WatchSetSubmissionAck.ParseError {
+            restoreSnapshot(previousSnapshot, source: previousSource)
+            throw SetSubmissionError.invalidReply
+        } catch {
+            restoreSnapshot(previousSnapshot, source: previousSource)
+            throw SetSubmissionError.transportFailed(error.localizedDescription)
+        }
     }
 
     private func applyMessage(_ message: [String: Any]) {
@@ -226,6 +348,77 @@ final class WatchSessionManager: NSObject, ObservableObject {
             isTraining = isTraining ?? true
         case .reachable, .inactive:
             break
+        }
+    }
+
+    private func sendSubmissionMessage(
+        _ propertyList: [String: Any],
+        using session: WCSession
+    ) async throws -> [String: Any] {
+        try await withCheckedThrowingContinuation { continuation in
+            session.sendMessage(
+                propertyList,
+                replyHandler: { reply in
+                    continuation.resume(returning: reply)
+                },
+                errorHandler: { error in
+                    continuation.resume(throwing: error)
+                }
+            )
+        }
+    }
+
+    @MainActor
+    private func applyOptimisticSubmission(
+        _ draft: WatchRecordDraft,
+        exercise submittedExercise: WatchWorkoutSnapshot.Exercise,
+        to previousSnapshot: WatchWorkoutSnapshot
+    ) {
+        let updatedExercises = previousSnapshot.exercises.map { exercise in
+            guard exercise.exerciseOrderIndex == submittedExercise.exerciseOrderIndex else {
+                return exercise
+            }
+
+            let leftCount = exercise.leftCompletedSetCount + (draft.side == "left" ? 1 : 0)
+            let rightCount = exercise.rightCompletedSetCount + (draft.side == "right" ? 1 : 0)
+
+            return WatchWorkoutSnapshot.Exercise(
+                exerciseOrderIndex: exercise.exerciseOrderIndex,
+                name: exercise.name,
+                completedSetCount: exercise.completedSetCount + 1,
+                weightUnit: exercise.weightUnit,
+                isUnilateral: exercise.isUnilateral,
+                defaultRestSeconds: exercise.defaultRestSeconds,
+                leftCompletedSetCount: leftCount,
+                rightCompletedSetCount: rightCount,
+                lastSetReference: WatchWorkoutSnapshot.LastSetReference(
+                    weight: draft.weight,
+                    reps: draft.reps,
+                    source: "currentSession"
+                )
+            )
+        }
+
+        let updatedSnapshot = WatchWorkoutSnapshot(
+            sessionID: previousSnapshot.sessionID,
+            sessionName: previousSnapshot.sessionName,
+            startedAt: previousSnapshot.startedAt,
+            exercises: updatedExercises
+        )
+
+        snapshotSource = .live
+        snapshot = updatedSnapshot
+    }
+
+    @MainActor
+    private func restoreSnapshot(_ previousSnapshot: WatchWorkoutSnapshot?, source previousSource: SnapshotSource?) {
+        snapshotSource = previousSource
+        snapshot = previousSnapshot
+
+        if let previousSnapshot {
+            cache(previousSnapshot)
+        } else {
+            clearCachedSnapshot()
         }
     }
 }

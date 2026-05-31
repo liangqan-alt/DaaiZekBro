@@ -10,28 +10,87 @@ struct WatchWorkoutSnapshot: Equatable {
         case invalidExerciseName
         case invalidExerciseOrderIndex
         case invalidCompletedSetCount
+        case invalidLeftCompletedSetCount
+        case invalidRightCompletedSetCount
         case invalidWeightUnit
         case invalidIsUnilateral
         case invalidDefaultRestSeconds
+        case invalidLastSetReference
+        case invalidLastSetWeight
+        case invalidLastSetReps
+        case invalidLastSetSource
+    }
+
+    struct LastSetReference: Equatable {
+        let weight: Double
+        let reps: Int
+        let source: String
+
+        nonisolated var propertyList: [String: Any] {
+            [
+                "weight": weight,
+                "reps": reps,
+                "source": source,
+            ]
+        }
+
+        nonisolated init(weight: Double, reps: Int, source: String) {
+            self.weight = weight
+            self.reps = reps
+            self.source = source
+        }
+
+        nonisolated init(propertyList: [String: Any]) throws {
+            guard let weight = propertyList["weight"] as? Double,
+                  weight.isFinite,
+                  weight >= 0 else {
+                throw ParseError.invalidLastSetWeight
+            }
+
+            guard let reps = propertyList["reps"] as? Int,
+                  reps >= 1 else {
+                throw ParseError.invalidLastSetReps
+            }
+
+            guard let source = propertyList["source"] as? String,
+                  source == "currentSession" || source == "history" else {
+                throw ParseError.invalidLastSetSource
+            }
+
+            self.weight = weight
+            self.reps = reps
+            self.source = source
+        }
     }
 
     struct Exercise: Equatable {
         let exerciseOrderIndex: Int
         let name: String
         let completedSetCount: Int
+        let leftCompletedSetCount: Int
+        let rightCompletedSetCount: Int
         let weightUnit: String
         let isUnilateral: Bool
         let defaultRestSeconds: Int
+        let lastSetReference: LastSetReference?
 
         nonisolated var propertyList: [String: Any] {
-            [
+            var propertyList: [String: Any] = [
                 "exerciseOrderIndex": exerciseOrderIndex,
                 "name": name,
                 "completedSetCount": completedSetCount,
+                "leftCompletedSetCount": leftCompletedSetCount,
+                "rightCompletedSetCount": rightCompletedSetCount,
                 "weightUnit": weightUnit,
                 "isUnilateral": isUnilateral,
                 "defaultRestSeconds": defaultRestSeconds,
             ]
+
+            if let lastSetReference {
+                propertyList["lastSetReference"] = lastSetReference.propertyList
+            }
+
+            return propertyList
         }
 
         nonisolated init(
@@ -40,14 +99,20 @@ struct WatchWorkoutSnapshot: Equatable {
             completedSetCount: Int,
             weightUnit: String,
             isUnilateral: Bool,
-            defaultRestSeconds: Int
+            defaultRestSeconds: Int,
+            leftCompletedSetCount: Int = 0,
+            rightCompletedSetCount: Int = 0,
+            lastSetReference: LastSetReference? = nil
         ) {
             self.exerciseOrderIndex = exerciseOrderIndex
             self.name = name
             self.completedSetCount = completedSetCount
+            self.leftCompletedSetCount = leftCompletedSetCount
+            self.rightCompletedSetCount = rightCompletedSetCount
             self.weightUnit = weightUnit
             self.isUnilateral = isUnilateral
             self.defaultRestSeconds = defaultRestSeconds
+            self.lastSetReference = lastSetReference
         }
 
         nonisolated init(propertyList: [String: Any]) throws {
@@ -66,6 +131,16 @@ struct WatchWorkoutSnapshot: Equatable {
                 throw ParseError.invalidCompletedSetCount
             }
 
+            let leftCompletedSetCount = propertyList["leftCompletedSetCount"] as? Int ?? 0
+            guard leftCompletedSetCount >= 0 else {
+                throw ParseError.invalidLeftCompletedSetCount
+            }
+
+            let rightCompletedSetCount = propertyList["rightCompletedSetCount"] as? Int ?? 0
+            guard rightCompletedSetCount >= 0 else {
+                throw ParseError.invalidRightCompletedSetCount
+            }
+
             guard let weightUnit = propertyList["weightUnit"] as? String,
                   weightUnit.isEmpty == false else {
                 throw ParseError.invalidWeightUnit
@@ -80,12 +155,30 @@ struct WatchWorkoutSnapshot: Equatable {
                 throw ParseError.invalidDefaultRestSeconds
             }
 
+            let lastSetReference: LastSetReference?
+            if let referencePropertyList = propertyList["lastSetReference"] {
+                guard let referencePropertyList = referencePropertyList as? [String: Any] else {
+                    throw ParseError.invalidLastSetReference
+                }
+
+                do {
+                    lastSetReference = try LastSetReference(propertyList: referencePropertyList)
+                } catch {
+                    throw ParseError.invalidLastSetReference
+                }
+            } else {
+                lastSetReference = nil
+            }
+
             self.exerciseOrderIndex = exerciseOrderIndex
             self.name = name
             self.completedSetCount = completedSetCount
+            self.leftCompletedSetCount = leftCompletedSetCount
+            self.rightCompletedSetCount = rightCompletedSetCount
             self.weightUnit = weightUnit
             self.isUnilateral = isUnilateral
             self.defaultRestSeconds = defaultRestSeconds
+            self.lastSetReference = lastSetReference
         }
     }
 

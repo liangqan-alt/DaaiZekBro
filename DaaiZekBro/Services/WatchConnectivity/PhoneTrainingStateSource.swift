@@ -28,21 +28,23 @@ struct PhoneTrainingStateSource {
         currentSnapshot: currentWorkoutSnapshot
     )
 
+    private static let historyReferencePageSize = 50
+    private static let historyReferenceMaxPages = 4
+
     private static func currentWorkoutSnapshot(in context: ModelContext) throws -> WatchWorkoutSnapshot? {
         guard let session = try WorkoutSessionLifecycle.currentOpenSession(in: context) else {
             return nil
         }
 
-        let sessionID = session.id
-        let completedSetCounts = try completedSetCounts(sessionID: sessionID, in: context)
+        let sessionSets = try setsForSession(sessionID: session.id, in: context)
         let exercises = try snapshotExercises(
             for: session,
-            completedSetCounts: completedSetCounts,
+            sessionSets: sessionSets,
             in: context
         )
 
         return WatchWorkoutSnapshot(
-            sessionID: sessionID.uuidString,
+            sessionID: session.id.uuidString,
             sessionName: sessionName(for: session),
             startedAt: session.startedAt.timeIntervalSince1970,
             exercises: exercises
@@ -59,33 +61,58 @@ struct PhoneTrainingStateSource {
 
     private static func snapshotExercises(
         for session: WorkoutSession,
-        completedSetCounts: [Int: Int],
+        sessionSets: [WorkoutSet],
         in context: ModelContext
     ) throws -> [WatchWorkoutSnapshot.Exercise] {
         let snapshots = try exerciseSnapshots(sessionID: session.id, in: context)
+        let descriptors: [WorkoutSessionExerciseDescriptor]
 
         if snapshots.isEmpty {
-            return try WorkoutSessionLifecycle.exerciseDescriptors(for: session, in: context)
-                .map { exercise in
-                    WatchWorkoutSnapshot.Exercise(
-                        exerciseOrderIndex: exercise.orderIndex,
-                        name: exercise.name,
-                        completedSetCount: completedSetCounts[exercise.orderIndex, default: 0],
-                        weightUnit: exercise.weightUnit.rawValue,
-                        isUnilateral: exercise.isUnilateral,
-                        defaultRestSeconds: exercise.defaultRestSeconds
-                    )
-                }
+            descriptors = try WorkoutSessionLifecycle.exerciseDescriptors(for: session, in: context)
+        } else {
+            descriptors = snapshots.map { snapshot in
+                WorkoutSessionExerciseDescriptor(
+                    exercise: snapshot.exercise,
+                    name: snapshot.exerciseNameSnapshot,
+                    defaultRestSeconds: snapshot.defaultRestSecondsSnapshot,
+                    isUnilateral: snapshot.isUnilateralSnapshot,
+                    weightUnit: snapshot.weightUnit,
+                    orderIndex: snapshot.orderIndex
+                )
+            }
         }
 
-        return snapshots.map { snapshot in
-            WatchWorkoutSnapshot.Exercise(
-                exerciseOrderIndex: snapshot.orderIndex,
-                name: snapshot.exerciseNameSnapshot,
-                completedSetCount: completedSetCounts[snapshot.orderIndex, default: 0],
-                weightUnit: snapshot.weightUnit.rawValue,
-                isUnilateral: snapshot.isUnilateralSnapshot,
-                defaultRestSeconds: snapshot.defaultRestSecondsSnapshot
+        return try descriptors.map { descriptor in
+            let exerciseSets = WorkoutSetLogging.sortedByCompletedAt(
+                sessionSets.filter { $0.exerciseOrderIndex == descriptor.orderIndex }
+            )
+            let lastCurrentSet = exerciseSets.last
+            let historySet: WorkoutSet?
+            if lastCurrentSet == nil {
+                historySet = try historicalLastSet(
+                    currentSessionID: session.id,
+                    exercise: descriptor.exercise,
+                    exerciseName: descriptor.name,
+                    in: context
+                )
+            } else {
+                historySet = nil
+            }
+
+            return WatchWorkoutSnapshot.Exercise(
+                exerciseOrderIndex: descriptor.orderIndex,
+                name: descriptor.name,
+                completedSetCount: exerciseSets.count,
+                weightUnit: descriptor.weightUnit.rawValue,
+                isUnilateral: descriptor.isUnilateral,
+                defaultRestSeconds: descriptor.defaultRestSeconds,
+                leftCompletedSetCount: exerciseSets.filter { $0.side == .left }.count,
+                rightCompletedSetCount: exerciseSets.filter { $0.side == .right }.count,
+                lastSetReference: reference(
+                    currentSet: lastCurrentSet,
+                    historySet: historySet,
+                    weightUnit: descriptor.weightUnit
+                )
             )
         }
     }
@@ -107,20 +134,105 @@ struct PhoneTrainingStateSource {
         )
     }
 
-    private static func completedSetCounts(sessionID: UUID, in context: ModelContext) throws -> [Int: Int] {
-        let sets = try context.fetch(
+    private static func setsForSession(sessionID: UUID, in context: ModelContext) throws -> [WorkoutSet] {
+        try context.fetch(
             FetchDescriptor<WorkoutSet>(
                 predicate: #Predicate<WorkoutSet> { set in
                     set.session?.id == sessionID
-                }
+                },
+                sortBy: [
+                    SortDescriptor(\WorkoutSet.completedAt),
+                    SortDescriptor(\WorkoutSet.setIndex),
+                ]
             )
         )
-        var counts: [Int: Int] = [:]
+    }
 
-        for set in sets {
-            counts[set.exerciseOrderIndex, default: 0] += 1
+    private static func historicalLastSet(
+        currentSessionID: UUID,
+        exercise: Exercise?,
+        exerciseName: String,
+        in context: ModelContext
+    ) throws -> WorkoutSet? {
+        if let exercise {
+            let exerciseID = exercise.persistentModelID
+            if let set = try firstHistoricalSet(
+                currentSessionID: currentSessionID,
+                predicate: #Predicate<WorkoutSet> { set in
+                    set.exercise?.persistentModelID == exerciseID
+                },
+                in: context
+            ) {
+                return set
+            }
         }
 
-        return counts
+        return try firstHistoricalSet(
+            currentSessionID: currentSessionID,
+            predicate: #Predicate<WorkoutSet> { set in
+                set.exerciseNameSnapshot == exerciseName ||
+                    (set.exerciseNameSnapshot == "" && set.exercise?.name == exerciseName)
+            },
+            in: context
+        )
+    }
+
+    private static func firstHistoricalSet(
+        currentSessionID: UUID,
+        predicate: Predicate<WorkoutSet>,
+        in context: ModelContext
+    ) throws -> WorkoutSet? {
+        var offset = 0
+        var pageCount = 0
+
+        while true {
+            guard pageCount < historyReferenceMaxPages else {
+                return nil
+            }
+
+            var descriptor = FetchDescriptor<WorkoutSet>(
+                predicate: predicate,
+                sortBy: [SortDescriptor(\WorkoutSet.completedAt, order: .reverse)]
+            )
+            descriptor.fetchLimit = historyReferencePageSize
+            descriptor.fetchOffset = offset
+
+            let page = try context.fetch(descriptor)
+
+            if let set = page.first(where: { $0.session?.id != currentSessionID }) {
+                return set
+            }
+
+            guard page.count == historyReferencePageSize else {
+                return nil
+            }
+
+            offset += historyReferencePageSize
+            pageCount += 1
+        }
+    }
+
+    private static func reference(
+        currentSet: WorkoutSet?,
+        historySet: WorkoutSet?,
+        weightUnit: WeightUnit
+    ) -> WatchWorkoutSnapshot.LastSetReference? {
+        if let currentSet {
+            return WatchWorkoutSnapshot.LastSetReference(
+                weight: weightUnit.displayValue(fromKilograms: currentSet.weight),
+                reps: currentSet.reps,
+                source: "currentSession"
+            )
+        }
+
+        guard let historySet else {
+            return nil
+        }
+
+        return WatchWorkoutSnapshot.LastSetReference(
+            weight: weightUnit.displayValue(fromKilograms: historySet.weight),
+            reps: historySet.reps,
+            source: "history"
+        )
     }
 }

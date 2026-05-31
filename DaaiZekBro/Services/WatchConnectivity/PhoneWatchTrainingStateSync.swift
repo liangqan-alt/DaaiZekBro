@@ -118,6 +118,11 @@ final class PhoneWatchTrainingStateSync {
         _ propertyList: [String: Any],
         reply: ([String: Any]) -> Void
     ) {
+        if propertyList["kind"] as? String == WatchSetSubmissionMessage.kind {
+            handleSetSubmission(propertyList, reply: reply)
+            return
+        }
+
         do {
             let request = try WatchTrainingStateMessage(propertyList: propertyList)
 
@@ -137,6 +142,40 @@ final class PhoneWatchTrainingStateSync {
         } catch let error as WatchTrainingStateMessage.ParseError {
             latestDiagnostic = .invalidRequest(String(describing: error))
         } catch {
+            latestDiagnostic = .sourceFailed(error.localizedDescription)
+        }
+    }
+
+    private func handleSetSubmission(
+        _ propertyList: [String: Any],
+        reply: ([String: Any]) -> Void
+    ) {
+        guard let context = modelContext else {
+            let ack = WatchSetSubmissionAck.rejected(
+                clientSubmissionID: PhoneWatchSetSubmissionHandler.clientSubmissionID(in: propertyList),
+                errorCode: .modelContextUnavailable,
+                message: "训练数据暂不可用"
+            )
+            reply(ack.propertyList)
+            latestDiagnostic = .modelContextUnavailable
+            return
+        }
+
+        do {
+            let submission = try WatchSetSubmissionMessage(propertyList: propertyList)
+            let ack = PhoneWatchSetSubmissionHandler.handle(submission, in: context)
+            reply(ack.propertyList)
+
+            if ack.status == .saved {
+                refresh(in: context)
+            } else {
+                latestDiagnostic = .invalidRequest(ack.errorCode?.rawValue ?? "setSubmissionRejected")
+            }
+        } catch let error as WatchSetSubmissionMessage.ParseError {
+            reply(PhoneWatchSetSubmissionHandler.rejectedInvalidPayload(from: propertyList).propertyList)
+            latestDiagnostic = .invalidRequest(String(describing: error))
+        } catch {
+            reply(PhoneWatchSetSubmissionHandler.rejectedInvalidPayload(from: propertyList).propertyList)
             latestDiagnostic = .sourceFailed(error.localizedDescription)
         }
     }
