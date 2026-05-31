@@ -338,6 +338,28 @@ struct PhoneWatchTrainingStateSyncTests {
         #expect(sync.latestDiagnostic == nil)
     }
 
+    @Test func activationFailureIsDiagnosticOnlyAndDoesNotPublish() throws {
+        let context = try makeInMemoryContext()
+        let transport = FakePhoneWatchTrainingStateTransport()
+        var sourceCallCount = 0
+        let sync = PhoneWatchTrainingStateSync(
+            transport: transport,
+            source: PhoneTrainingStateSource { _ in
+                sourceCallCount += 1
+                return true
+            }
+        )
+
+        sync.bind(modelContext: context)
+        sync.activate()
+        transport.failActivation("Injected activation failure")
+
+        #expect(sourceCallCount == 0)
+        #expect(transport.applicationContexts.isEmpty)
+        #expect(transport.updateApplicationContextCallCount == 0)
+        #expect(sync.latestDiagnostic == .activationFailed("Injected activation failure"))
+    }
+
     @Test func activationSuccessPublishErrorIsDiagnosticAndDoesNotAutomaticallyRetry() throws {
         let context = try makeInMemoryContext()
         let transport = FakePhoneWatchTrainingStateTransport()
@@ -457,6 +479,80 @@ struct PhoneWatchTrainingStateSyncTests {
         #expect(sync.latestDiagnostic == .publishFailed("Injected update failure"))
     }
 
+    @Test func refreshWithTransportUnavailableSetsDiagnosticWithoutThrowing() throws {
+        let context = try makeInMemoryContext()
+        let transport = FakePhoneWatchTrainingStateTransport()
+        transport.updateApplicationContextError = PhoneWatchTrainingStateSync.DiagnosticState.transportUnavailable
+        let sync = PhoneWatchTrainingStateSync(
+            transport: transport,
+            source: PhoneTrainingStateSource { _ in true }
+        )
+
+        sync.bind(modelContext: context)
+        sync.activate()
+        sync.refresh()
+
+        #expect(transport.applicationContexts.isEmpty)
+        #expect(transport.updateApplicationContextCallCount == 1)
+        #expect(sync.latestDiagnostic == .transportUnavailable)
+
+        transport.updateApplicationContextError = nil
+        sync.refresh()
+
+        #expect(transport.applicationContexts.count == 1)
+        #expect(sync.latestDiagnostic == nil)
+    }
+
+    @Test func setSubmissionReplyIsSavedEvenWhenPostSaveRefreshCannotPublish() throws {
+        let context = try makeInMemoryContext()
+        let session = try makeSession(
+            templateName: "Push A",
+            exercises: [
+                Exercise(name: "Bench Press", defaultRestSeconds: 120, isUnilateral: false, weightUnit: .kilograms),
+            ],
+            in: context
+        )
+        let transport = FakePhoneWatchTrainingStateTransport()
+        transport.updateApplicationContextError = SentinelWatchSyncError.updateFailed
+        let sync = PhoneWatchTrainingStateSync(transport: transport)
+        let submission = WatchSetSubmissionMessage(
+            clientSubmissionID: "watch-submit-post-save-refresh-failure",
+            sentAt: 1_800_000_100,
+            sessionID: session.id.uuidString,
+            sessionName: "Push A",
+            sessionStartedAt: session.startedAt.timeIntervalSince1970,
+            exerciseOrderIndex: 0,
+            exerciseName: "Bench Press",
+            weight: 80,
+            weightUnit: "kg",
+            reps: 8,
+            rpe: nil,
+            side: nil,
+            completedAt: 1_800_000_101
+        )
+
+        sync.bind(modelContext: context)
+        sync.activate()
+
+        let reply = try #require(transport.receive(submission.propertyList))
+        let ack = try WatchSetSubmissionAck(propertyList: reply)
+        let savedSets = try WorkoutSetLogging.setsForExercise(
+            sessionID: session.id,
+            exerciseOrderIndex: 0,
+            in: context
+        )
+
+        #expect(ack.status == .saved)
+        #expect(ack.savedSetIndex == 1)
+        #expect(ack.completedSetCount == 1)
+        #expect(savedSets.count == 1)
+        #expect(savedSets[0].weight == 80)
+        #expect(savedSets[0].reps == 8)
+        #expect(transport.applicationContexts.isEmpty)
+        #expect(transport.updateApplicationContextCallCount == 1)
+        #expect(sync.latestDiagnostic == .publishFailed("Injected update failure"))
+    }
+
     @Test func requestSourceErrorIsDiagnosticAndDoesNotReply() throws {
         let context = try makeInMemoryContext()
         let transport = FakePhoneWatchTrainingStateTransport()
@@ -545,6 +641,7 @@ private func makeWatchSnapshot() -> WatchWorkoutSnapshot {
 @MainActor
 private final class FakePhoneWatchTrainingStateTransport: PhoneWatchTrainingStateTransport {
     private var incomingMessageHandler: (@MainActor ([String: Any], @escaping ([String: Any]) -> Void) -> Void)?
+    private var diagnosticHandler: (@MainActor (String) -> Void)?
     private var activationSuccessHandler: (@MainActor () -> Void)?
     private(set) var activateCount = 0
     private(set) var updateApplicationContextCallCount = 0
@@ -557,7 +654,9 @@ private final class FakePhoneWatchTrainingStateTransport: PhoneWatchTrainingStat
         incomingMessageHandler = handler
     }
 
-    func setDiagnosticHandler(_ handler: @escaping @MainActor (String) -> Void) {}
+    func setDiagnosticHandler(_ handler: @escaping @MainActor (String) -> Void) {
+        diagnosticHandler = handler
+    }
 
     func setActivationSuccessHandler(_ handler: @escaping @MainActor () -> Void) {
         activationSuccessHandler = handler
@@ -588,6 +687,10 @@ private final class FakePhoneWatchTrainingStateTransport: PhoneWatchTrainingStat
 
     func completeActivationSuccessfully() {
         activationSuccessHandler?()
+    }
+
+    func failActivation(_ message: String) {
+        diagnosticHandler?(message)
     }
 
     func latestTrainingStateMessage() throws -> WatchTrainingStateMessage? {

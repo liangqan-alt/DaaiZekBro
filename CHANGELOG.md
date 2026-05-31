@@ -5,6 +5,12 @@
 
 ## [Unreleased]
 
+## [V0.41] - 2026-06-01
+
+### 新增
+- 增加 Apple Watch 伴随版本降级 gate 回归测试，覆盖 Watch 不可用、不可达或发布失败时 iPhone 开始训练、记录一组、结束训练和历史展示保持不变。
+- 增加 Watch 训练状态同步 diagnostic-only 回归测试，覆盖激活失败、传输不可用和 Watch 提交保存后 post-save refresh 发布失败不影响本地保存结果。
+
 ## [V0.40] - 2026-06-01
 
 ### 新增
