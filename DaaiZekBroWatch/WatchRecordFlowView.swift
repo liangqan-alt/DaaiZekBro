@@ -93,7 +93,7 @@ struct WatchRecordFlowView: View {
             VStack(alignment: .leading, spacing: 8) {
                 referenceCard
 
-                if sessionManager.canSubmitSet == false {
+                if showsSyncBanner {
                     connectionBanner
                 }
 
@@ -119,13 +119,19 @@ struct WatchRecordFlowView: View {
     }
 
     private var currentExercise: WatchWorkoutSnapshot.Exercise {
-        guard sessionManager.snapshot?.sessionID == snapshot.sessionID else {
+        guard sessionManager.projectedSnapshot?.sessionID == snapshot.sessionID else {
             return exercise
         }
 
-        return sessionManager.snapshot?.exercises.first {
+        return sessionManager.projectedSnapshot?.exercises.first {
             $0.exerciseOrderIndex == exercise.exerciseOrderIndex
         } ?? exercise
+    }
+
+    private var showsSyncBanner: Bool {
+        sessionManager.connectionStatus != .reachable
+            || sessionManager.pendingSubmissionCount > 0
+            || sessionManager.needsUserActionSubmissionCount > 0
     }
 
     private var canSubmit: Bool {
@@ -249,11 +255,19 @@ struct WatchRecordFlowView: View {
     }
 
     private var connectionMessage: String {
+        if sessionManager.needsUserActionSubmissionCount > 0 {
+            return "\(sessionManager.needsUserActionSubmissionCount) 条记录需在 iPhone 处理"
+        }
+
+        if sessionManager.pendingSubmissionCount > 0 {
+            return "\(sessionManager.pendingSubmissionCount) 条记录待同步"
+        }
+
         switch sessionManager.connectionStatus {
         case .reachable:
-            "等待实时训练数据"
+            return "等待实时训练数据"
         case .unreachable, .inactive, .failed, .unsupported:
-            "手机暂不可达"
+            return "手机暂不可达 · 新记录将待同步"
         }
     }
 
@@ -450,7 +464,7 @@ struct WatchRecordFlowView: View {
         submitTask?.cancel()
         submitTask = Task {
             do {
-                try await sessionManager.submitSet(
+                let result = try await sessionManager.submitSet(
                     draft,
                     sessionID: sessionID,
                     exercise: exerciseForSubmission
@@ -458,6 +472,7 @@ struct WatchRecordFlowView: View {
                 try Task.checkCancellation()
                 await MainActor.run {
                     handleSubmissionSuccess(
+                        result: result,
                         submittedDraft: draft,
                         submittedExercise: exerciseForSubmission
                     )
@@ -475,17 +490,36 @@ struct WatchRecordFlowView: View {
     }
 
     private func handleSubmissionSuccess(
+        result: WatchSessionManager.SetSubmissionResult,
         submittedDraft: WatchRecordDraft,
         submittedExercise: WatchWorkoutSnapshot.Exercise
     ) {
         isSubmitting = false
-        feedback = SubmissionFeedback(message: "已同步", isSuccess: true)
-        WKInterfaceDevice.current().play(.success)
+        feedback = SubmissionFeedback(
+            message: feedbackMessage(for: result),
+            isSuccess: result == .synced || result == .pending
+        )
+        WKInterfaceDevice.current().play(result == .synced || result == .pending ? .success : .failure)
         resetDraft()
-        startRestTimerIfNeeded(after: submittedDraft, exercise: submittedExercise)
+        if result == .synced || result == .pending {
+            startRestTimerIfNeeded(after: submittedDraft, exercise: submittedExercise)
+        }
 
         if exercise.isUnilateral {
             selectedSide = sessionManager.inferredNextSide(for: currentExercise)
+        }
+    }
+
+    private func feedbackMessage(for result: WatchSessionManager.SetSubmissionResult) -> String {
+        switch result {
+        case .synced:
+            "已同步"
+        case .pending:
+            "待同步"
+        case .needsUserAction:
+            "需用户处理"
+        case .discarded:
+            "已丢弃"
         }
     }
 

@@ -18,6 +18,13 @@ final class WatchSessionManager: NSObject, ObservableObject {
         case training(snapshot: WatchWorkoutSnapshot, isOffline: Bool)
     }
 
+    enum SetSubmissionResult: Equatable {
+        case synced
+        case pending
+        case needsUserAction
+        case discarded
+    }
+
     private enum SnapshotSource {
         case live
         case cached
@@ -55,10 +62,16 @@ final class WatchSessionManager: NSObject, ObservableObject {
     @Published private(set) var connectionStatus: ConnectionStatus
     @Published private(set) var isTraining: Bool?
     @Published private(set) var snapshot: WatchWorkoutSnapshot?
+    @Published private(set) var pendingSubmissionCount: Int
+    @Published private(set) var needsUserActionSubmissionCount: Int
 
     private let session: WCSession?
     private let userDefaults: UserDefaults
+    private let pendingStore: WatchPendingSetSubmissionStore
     private var snapshotSource: SnapshotSource?
+    private var isAppActive = true
+    private var isRetryingPendingSubmissions = false
+    private var pendingRetryTask: Task<Void, Never>?
     private static let cachedSnapshotKey = "WatchSessionManager.cachedSnapshot"
 
     override init() {
@@ -75,6 +88,9 @@ final class WatchSessionManager: NSObject, ObservableObject {
         }
 
         self.userDefaults = userDefaults
+        pendingStore = WatchPendingSetSubmissionStore(userDefaults: userDefaults)
+        pendingSubmissionCount = pendingStore.activeSubmissionCount
+        needsUserActionSubmissionCount = pendingStore.needsUserActionCount
         let cachedSnapshot = Self.cachedSnapshot(in: userDefaults)
         snapshot = cachedSnapshot
         snapshotSource = cachedSnapshot == nil ? nil : .cached
@@ -95,6 +111,9 @@ final class WatchSessionManager: NSObject, ObservableObject {
         self.isTraining = isTraining
         self.snapshot = snapshot
         self.userDefaults = userDefaults
+        pendingStore = WatchPendingSetSubmissionStore(userDefaults: userDefaults)
+        pendingSubmissionCount = pendingStore.activeSubmissionCount
+        needsUserActionSubmissionCount = pendingStore.needsUserActionCount
         snapshotSource = snapshot == nil ? nil : (isCachedSnapshot ? .cached : .live)
         super.init()
     }
@@ -108,12 +127,16 @@ final class WatchSessionManager: NSObject, ObservableObject {
     }
 
     var canSubmitSet: Bool {
-        connectionStatus == .reachable && snapshotSource == .live && snapshot != nil
+        snapshot != nil && isTraining != false
+    }
+
+    var projectedSnapshot: WatchWorkoutSnapshot? {
+        snapshot?.applyingPendingSetSubmissions(pendingStore.submissions)
     }
 
     var displayState: DisplayState {
-        if let snapshot, snapshotSource == .live {
-            return .training(snapshot: snapshot, isOffline: connectionStatus != .reachable)
+        if let projectedSnapshot, snapshotSource == .live {
+            return .training(snapshot: projectedSnapshot, isOffline: connectionStatus != .reachable)
         }
 
         switch connectionStatus {
@@ -122,8 +145,8 @@ final class WatchSessionManager: NSObject, ObservableObject {
         case .inactive:
             return isTraining == true ? .waitingForTrainingData : .waitingToStart
         case .unreachable, .failed, .unsupported:
-            if let snapshot, snapshotSource == .cached {
-                return .training(snapshot: snapshot, isOffline: true)
+            if let projectedSnapshot, snapshotSource == .cached {
+                return .training(snapshot: projectedSnapshot, isOffline: true)
             }
 
             return .unreachableNoSnapshot
@@ -139,6 +162,7 @@ final class WatchSessionManager: NSObject, ObservableObject {
         session.delegate = self
         session.activate()
         updateReachability(for: session)
+        retryPendingSubmissionsIfPossible()
     }
 
     func refreshFromApplicationContext() {
@@ -149,6 +173,13 @@ final class WatchSessionManager: NSObject, ObservableObject {
 
         applyMessage(session.receivedApplicationContext)
         updateReachability(for: session)
+        retryPendingSubmissionsIfPossible()
+    }
+
+    @MainActor
+    func updateAppActive(_ isActive: Bool) {
+        isAppActive = isActive
+        handlePendingReachabilitySideEffects(for: connectionStatus)
     }
 
     func requestTrainingState() {
@@ -180,7 +211,7 @@ final class WatchSessionManager: NSObject, ObservableObject {
     }
 
     func inferredNextSide(for exercise: WatchWorkoutSnapshot.Exercise) -> String {
-        let currentExercise = snapshot?.exercises.first {
+        let currentExercise = projectedSnapshot?.exercises.first {
             $0.exerciseOrderIndex == exercise.exerciseOrderIndex
         } ?? exercise
 
@@ -195,7 +226,7 @@ final class WatchSessionManager: NSObject, ObservableObject {
         _ draft: WatchRecordDraft,
         sessionID: String,
         exercise: WatchWorkoutSnapshot.Exercise
-    ) async throws {
+    ) async throws -> SetSubmissionResult {
         guard let session else {
             updateConnectionStatus(.unsupported)
             throw SetSubmissionError.unavailable
@@ -204,67 +235,51 @@ final class WatchSessionManager: NSObject, ObservableObject {
         let nextStatus = connectionStatus(for: session)
         connectionStatus = nextStatus
         restoreCachedSnapshotIfNeeded(for: nextStatus)
-
-        guard session.activationState == .activated, session.isReachable else {
-            throw SetSubmissionError.notReachable
-        }
+        handlePendingReachabilitySideEffects(for: nextStatus)
 
         guard draft.canSubmit(isUnilateral: exercise.isUnilateral) else {
             throw SetSubmissionError.invalidDraft
         }
 
-        guard snapshotSource == .live,
-              let previousSnapshot = snapshot,
+        guard let previousSnapshot = snapshot,
               previousSnapshot.sessionID == sessionID,
-              previousSnapshot.exercises.contains(where: { $0.exerciseOrderIndex == exercise.exerciseOrderIndex }) else {
+              let baseExercise = previousSnapshot.exercises.first(where: { $0.exerciseOrderIndex == exercise.exerciseOrderIndex }) else {
             throw SetSubmissionError.missingLiveSnapshot
         }
 
-        let previousSource = snapshotSource
-        applyOptimisticSubmission(draft, exercise: exercise, to: previousSnapshot)
-
-        let clientSubmissionID = UUID().uuidString
-        let submittedAt = Date()
-        let message = WatchSetSubmissionMessage(
-            clientSubmissionID: clientSubmissionID,
-            sentAt: submittedAt.timeIntervalSince1970,
-            sessionID: sessionID,
-            exerciseOrderIndex: exercise.exerciseOrderIndex,
-            exerciseName: exercise.name,
-            weight: draft.weight,
-            weightUnit: exercise.weightUnit,
-            reps: draft.reps,
-            rpe: draft.rpe,
-            side: draft.side,
-            completedAt: submittedAt.timeIntervalSince1970
+        let pendingSubmission = try pendingStore.enqueue(
+            draft: draft,
+            snapshot: previousSnapshot,
+            exercise: baseExercise,
+            now: Date()
         )
+        refreshPendingState()
+
+        guard session.activationState == .activated, session.isReachable else {
+            return .pending
+        }
 
         do {
-            let reply = try await sendSubmissionMessage(message.propertyList, using: session)
-            let ack = try WatchSetSubmissionAck(propertyList: reply)
-
-            guard ack.clientSubmissionID == clientSubmissionID else {
-                throw SetSubmissionError.invalidReply
-            }
-
-            switch ack.status {
-            case .saved:
-                if let snapshot {
-                    cache(snapshot)
-                }
-                break
-            case .rejected:
-                throw SetSubmissionError.rejected(ack.message ?? "同步失败")
-            }
+            return try await sendPendingSubmission(pendingSubmission, using: session)
         } catch let error as SetSubmissionError {
-            restoreSnapshot(previousSnapshot, source: previousSource)
-            throw error
-        } catch is WatchSetSubmissionAck.ParseError {
-            restoreSnapshot(previousSnapshot, source: previousSource)
-            throw SetSubmissionError.invalidReply
+            switch error {
+            case .rejected:
+                throw error
+            default:
+                pendingStore.markPending(
+                    clientSubmissionID: pendingSubmission.clientSubmissionID,
+                    now: Date().timeIntervalSince1970
+                )
+                refreshPendingState()
+                return .pending
+            }
         } catch {
-            restoreSnapshot(previousSnapshot, source: previousSource)
-            throw SetSubmissionError.transportFailed(error.localizedDescription)
+            pendingStore.markPending(
+                clientSubmissionID: pendingSubmission.clientSubmissionID,
+                now: Date().timeIntervalSince1970
+            )
+            refreshPendingState()
+            return .pending
         }
     }
 
@@ -285,9 +300,11 @@ final class WatchSessionManager: NSObject, ObservableObject {
         self.isTraining = isTraining
 
         if let snapshot = trainingState.snapshot {
+            pendingStore.removeSyncedSubmissions(includedIn: snapshot)
             snapshotSource = .live
             self.snapshot = snapshot
             cache(snapshot)
+            refreshPendingState()
         } else if isTraining == false {
             snapshotSource = nil
             self.snapshot = nil
@@ -327,6 +344,7 @@ final class WatchSessionManager: NSObject, ObservableObject {
             let previousStatus = self.connectionStatus
             self.connectionStatus = status
             self.restoreCachedSnapshotIfNeeded(for: status)
+            self.handlePendingReachabilitySideEffects(for: status)
             didUpdate?(previousStatus, status)
         }
     }
@@ -369,57 +387,187 @@ final class WatchSessionManager: NSObject, ObservableObject {
     }
 
     @MainActor
-    private func applyOptimisticSubmission(
-        _ draft: WatchRecordDraft,
-        exercise submittedExercise: WatchWorkoutSnapshot.Exercise,
-        to previousSnapshot: WatchWorkoutSnapshot
-    ) {
-        let updatedExercises = previousSnapshot.exercises.map { exercise in
-            guard exercise.exerciseOrderIndex == submittedExercise.exerciseOrderIndex else {
-                return exercise
-            }
-
-            let leftCount = exercise.leftCompletedSetCount + (draft.side == "left" ? 1 : 0)
-            let rightCount = exercise.rightCompletedSetCount + (draft.side == "right" ? 1 : 0)
-
-            return WatchWorkoutSnapshot.Exercise(
-                exerciseOrderIndex: exercise.exerciseOrderIndex,
-                name: exercise.name,
-                completedSetCount: exercise.completedSetCount + 1,
-                weightUnit: exercise.weightUnit,
-                isUnilateral: exercise.isUnilateral,
-                defaultRestSeconds: exercise.defaultRestSeconds,
-                leftCompletedSetCount: leftCount,
-                rightCompletedSetCount: rightCount,
-                lastSetReference: WatchWorkoutSnapshot.LastSetReference(
-                    weight: draft.weight,
-                    reps: draft.reps,
-                    source: "currentSession"
-                )
+    private func sendPendingSubmission(
+        _ pendingSubmission: WatchPendingSetSubmission,
+        using session: WCSession,
+        manualReviewReason: WatchSetSubmissionManualReviewReason? = nil,
+        marksSyncing: Bool = true
+    ) async throws -> SetSubmissionResult {
+        let now = Date().timeIntervalSince1970
+        let wasNeedsUserAction = pendingSubmission.status == .needsUserAction
+        if marksSyncing && wasNeedsUserAction == false {
+            pendingStore.markSyncing(
+                clientSubmissionID: pendingSubmission.clientSubmissionID,
+                now: now
             )
+            refreshPendingState()
         }
 
-        let updatedSnapshot = WatchWorkoutSnapshot(
-            sessionID: previousSnapshot.sessionID,
-            sessionName: previousSnapshot.sessionName,
-            startedAt: previousSnapshot.startedAt,
-            exercises: updatedExercises
-        )
+        var propertyList = pendingSubmission.submission.propertyList
+        let effectiveManualReviewReason = manualReviewReason ?? pendingSubmission.manualReviewReason
+        if let effectiveManualReviewReason {
+            propertyList["manualReviewReason"] = effectiveManualReviewReason.rawValue
+        }
 
-        snapshotSource = .live
-        snapshot = updatedSnapshot
+        do {
+            let reply = try await sendSubmissionMessage(propertyList, using: session)
+            let ack = try WatchSetSubmissionAck(propertyList: reply)
+
+            guard ack.clientSubmissionID == pendingSubmission.clientSubmissionID else {
+                throw SetSubmissionError.invalidReply
+            }
+
+            switch ack.status {
+            case .saved:
+                guard let savedSetIndex = ack.savedSetIndex,
+                      let completedSetCount = ack.completedSetCount else {
+                    throw SetSubmissionError.invalidReply
+                }
+
+                if wasNeedsUserAction {
+                    pendingStore.remove(clientSubmissionID: pendingSubmission.clientSubmissionID)
+                } else {
+                    pendingStore.markSynced(
+                        clientSubmissionID: pendingSubmission.clientSubmissionID,
+                        now: Date().timeIntervalSince1970,
+                        savedSetIndex: savedSetIndex,
+                        completedSetCount: completedSetCount
+                    )
+                }
+                refreshPendingState()
+                requestTrainingState()
+                return .synced
+            case .needsUserAction:
+                pendingStore.markNeedsUserAction(
+                    clientSubmissionID: pendingSubmission.clientSubmissionID,
+                    now: Date().timeIntervalSince1970,
+                    reason: ack.manualReviewReason ?? effectiveManualReviewReason
+                )
+                refreshPendingState()
+                return .needsUserAction
+            case .discarded:
+                pendingStore.remove(clientSubmissionID: pendingSubmission.clientSubmissionID)
+                refreshPendingState()
+                return .discarded
+            case .rejected:
+                if wasNeedsUserAction {
+                    pendingStore.markNeedsUserAction(
+                        clientSubmissionID: pendingSubmission.clientSubmissionID,
+                        now: Date().timeIntervalSince1970,
+                        reason: effectiveManualReviewReason
+                    )
+                } else {
+                    pendingStore.discard(
+                        clientSubmissionID: pendingSubmission.clientSubmissionID,
+                        now: Date().timeIntervalSince1970
+                    )
+                }
+                refreshPendingState()
+                throw SetSubmissionError.rejected(ack.message ?? "同步失败")
+            }
+        } catch let error as SetSubmissionError {
+            throw error
+        } catch is WatchSetSubmissionAck.ParseError {
+            throw SetSubmissionError.invalidReply
+        } catch {
+            throw SetSubmissionError.transportFailed(error.localizedDescription)
+        }
     }
 
     @MainActor
-    private func restoreSnapshot(_ previousSnapshot: WatchWorkoutSnapshot?, source previousSource: SnapshotSource?) {
-        snapshotSource = previousSource
-        snapshot = previousSnapshot
-
-        if let previousSnapshot {
-            cache(previousSnapshot)
-        } else {
-            clearCachedSnapshot()
+    private func handlePendingReachabilitySideEffects(for status: ConnectionStatus) {
+        guard status == .reachable, isAppActive else {
+            pendingStore.clearReachableForegroundTimers()
+            refreshPendingState()
+            return
         }
+
+        let now = Date().timeIntervalSince1970
+        pendingStore.noteReachableForegroundStarted(at: now)
+        pendingStore.updateReachableForegroundTimeouts(now: now)
+        refreshPendingState()
+        retryPendingSubmissionsIfPossible()
+    }
+
+    @MainActor
+    private func retryPendingSubmissionsIfPossible() {
+        guard isRetryingPendingSubmissions == false,
+              isAppActive,
+              let session,
+              session.activationState == .activated,
+              session.isReachable else {
+            return
+        }
+
+        let submissions = (
+            pendingStore.retryableSubmissions()
+                + pendingStore.needsUserActionResultQuerySubmissions()
+        )
+        .sorted { left, right in
+            if left.createdAt == right.createdAt {
+                return left.clientSubmissionID < right.clientSubmissionID
+            }
+
+            return left.createdAt < right.createdAt
+        }
+        guard submissions.isEmpty == false else {
+            return
+        }
+
+        isRetryingPendingSubmissions = true
+        pendingRetryTask?.cancel()
+        pendingRetryTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.isRetryingPendingSubmissions = false }
+
+            for submission in submissions {
+                if Task.isCancelled {
+                    break
+                }
+
+                do {
+                    _ = try await self.sendPendingSubmission(
+                        submission,
+                        using: session,
+                        marksSyncing: submission.status != .needsUserAction
+                    )
+                } catch let error as SetSubmissionError {
+                    if case .rejected = error {
+                        continue
+                    }
+
+                    self.restoreSubmissionAfterRetryFailure(submission)
+                } catch {
+                    self.restoreSubmissionAfterRetryFailure(submission)
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func restoreSubmissionAfterRetryFailure(_ submission: WatchPendingSetSubmission) {
+        let now = Date().timeIntervalSince1970
+
+        if submission.status == .needsUserAction {
+            pendingStore.markNeedsUserAction(
+                clientSubmissionID: submission.clientSubmissionID,
+                now: now,
+                reason: submission.manualReviewReason
+            )
+        } else {
+            pendingStore.markPending(
+                clientSubmissionID: submission.clientSubmissionID,
+                now: now
+            )
+        }
+
+        refreshPendingState()
+    }
+
+    @MainActor
+    private func refreshPendingState() {
+        pendingSubmissionCount = pendingStore.activeSubmissionCount
+        needsUserActionSubmissionCount = pendingStore.needsUserActionCount
     }
 }
 

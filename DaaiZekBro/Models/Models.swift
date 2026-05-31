@@ -401,3 +401,126 @@ final class WorkoutSet {
         self.completedAt = completedAt
     }
 }
+
+enum WatchSetSubmissionRecordStatus: String, Codable, CaseIterable {
+    case saved
+    case needsUserAction
+    case discarded
+}
+
+enum WatchSetSubmissionRecordReason: String, Codable, CaseIterable {
+    case sessionNotFound
+    case exerciseNotFound
+    case syncTimeout
+}
+
+@Model
+final class WatchSetSubmissionRecord {
+    @Attribute(.unique)
+    var clientSubmissionID: String = ""
+    var originalSessionID: String = ""
+    var originalSessionName: String = ""
+    var originalSessionStartedAt: Date?
+    var exerciseOrderIndex: Int = 0
+    var exerciseName: String = ""
+    var weight: Double = 0
+    var weightUnitRawValue: String = WeightUnit.defaultUnit.rawValue
+    var reps: Int = 0
+    var rpe: Int?
+    var sideRawValue: String?
+    var completedAt: Date = Date()
+    var submittedAt: Date = Date()
+    var statusRawValue: String = WatchSetSubmissionRecordStatus.needsUserAction.rawValue
+    var reasonRawValue: String?
+    var message: String = ""
+    var savedSetIndex: Int?
+    var completedSetCount: Int?
+    var resolvedSessionID: String?
+    var resolvedExerciseOrderIndex: Int?
+    var createdAt: Date = Date()
+    var updatedAt: Date = Date()
+
+    var status: WatchSetSubmissionRecordStatus {
+        get {
+            WatchSetSubmissionRecordStatus(rawValue: statusRawValue) ?? .needsUserAction
+        }
+        set {
+            statusRawValue = newValue.rawValue
+        }
+    }
+
+    var reason: WatchSetSubmissionRecordReason? {
+        get {
+            reasonRawValue.flatMap(WatchSetSubmissionRecordReason.init(rawValue:))
+        }
+        set {
+            reasonRawValue = newValue?.rawValue
+        }
+    }
+
+    var weightUnit: WeightUnit {
+        get {
+            WeightUnit(rawValue: weightUnitRawValue) ?? .defaultUnit
+        }
+        set {
+            weightUnitRawValue = newValue.rawValue
+        }
+    }
+
+    var side: Side? {
+        get {
+            sideRawValue.flatMap(Side.init(rawValue:))
+        }
+        set {
+            sideRawValue = newValue?.rawValue
+        }
+    }
+
+    init(
+        clientSubmissionID: String = "",
+        originalSessionID: String = "",
+        originalSessionName: String = "",
+        originalSessionStartedAt: Date? = nil,
+        exerciseOrderIndex: Int = 0,
+        exerciseName: String = "",
+        weight: Double = 0,
+        weightUnit: WeightUnit = .defaultUnit,
+        reps: Int = 0,
+        rpe: Int? = nil,
+        side: Side? = nil,
+        completedAt: Date = Date(),
+        submittedAt: Date = Date(),
+        status: WatchSetSubmissionRecordStatus = .needsUserAction,
+        reason: WatchSetSubmissionRecordReason? = nil,
+        message: String = "",
+        savedSetIndex: Int? = nil,
+        completedSetCount: Int? = nil,
+        resolvedSessionID: UUID? = nil,
+        resolvedExerciseOrderIndex: Int? = nil,
+        createdAt: Date = Date(),
+        updatedAt: Date = Date()
+    ) {
+        self.clientSubmissionID = clientSubmissionID
+        self.originalSessionID = originalSessionID
+        self.originalSessionName = originalSessionName
+        self.originalSessionStartedAt = originalSessionStartedAt
+        self.exerciseOrderIndex = exerciseOrderIndex
+        self.exerciseName = exerciseName
+        self.weight = weight
+        self.weightUnitRawValue = weightUnit.rawValue
+        self.reps = reps
+        self.rpe = rpe
+        self.sideRawValue = side?.rawValue
+        self.completedAt = completedAt
+        self.submittedAt = submittedAt
+        self.statusRawValue = status.rawValue
+        self.reasonRawValue = reason?.rawValue
+        self.message = message
+        self.savedSetIndex = savedSetIndex
+        self.completedSetCount = completedSetCount
+        self.resolvedSessionID = resolvedSessionID?.uuidString
+        self.resolvedExerciseOrderIndex = resolvedExerciseOrderIndex
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}

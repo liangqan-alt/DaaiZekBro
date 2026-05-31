@@ -15,8 +15,21 @@ struct SchemaSingleSourceTests {
         TrainingDayOverride.self,
         WorkoutSessionExerciseSnapshot.self,
         WorkoutSet.self,
+        WatchSetSubmissionRecord.self,
     ]
     private let expectedModelNames = [
+        "Exercise",
+        "Template",
+        "TemplateExercise",
+        "WorkoutSession",
+        "TrainingCycle",
+        "TrainingCycleSlot",
+        "TrainingDayOverride",
+        "WorkoutSessionExerciseSnapshot",
+        "WorkoutSet",
+        "WatchSetSubmissionRecord",
+    ]
+    private let expectedPreLedgerModelNames = [
         "Exercise",
         "Template",
         "TemplateExercise",
@@ -56,10 +69,11 @@ struct SchemaSingleSourceTests {
 
     @Test func schemaModelListOrderMatchesCurrentStoreContract() {
         #expect(typeIdentifiers(DaaiZekBroSchema.modelTypes) == typeIdentifiers(expectedModelTypes))
-        #expect(modelNames(DaaiZekBroSchemaV1.models) == expectedModelNames)
-        #expect(modelNames(DaaiZekBroSchemaV2.models) == expectedModelNames)
-        #expect(typeIdentifiers(DaaiZekBroSchemaV3.models) == typeIdentifiers(expectedModelTypes))
-        #expect(typeIdentifiers(DaaiZekBroSchema.modelTypes) == typeIdentifiers(DaaiZekBroSchemaV3.models))
+        #expect(modelNames(DaaiZekBroSchemaV1.models) == expectedPreLedgerModelNames)
+        #expect(modelNames(DaaiZekBroSchemaV2.models) == expectedPreLedgerModelNames)
+        #expect(modelNames(DaaiZekBroSchemaV3.models) == expectedPreLedgerModelNames)
+        #expect(typeIdentifiers(DaaiZekBroSchemaV4.models) == typeIdentifiers(expectedModelTypes))
+        #expect(typeIdentifiers(DaaiZekBroSchema.modelTypes) == typeIdentifiers(DaaiZekBroSchemaV4.models))
     }
 
     @Test func migrationPlanDeclaresCurrentSchemaWithLightweightStages() {
@@ -68,9 +82,10 @@ struct SchemaSingleSourceTests {
                 ObjectIdentifier(DaaiZekBroSchemaV1.self),
                 ObjectIdentifier(DaaiZekBroSchemaV2.self),
                 ObjectIdentifier(DaaiZekBroSchemaV3.self),
+                ObjectIdentifier(DaaiZekBroSchemaV4.self),
             ]
         )
-        #expect(DaaiZekBroMigrationPlan.stages.count == 2)
+        #expect(DaaiZekBroMigrationPlan.stages.count == 3)
 
         assertLightweightStage(
             DaaiZekBroMigrationPlan.stages[0],
@@ -81,6 +96,11 @@ struct SchemaSingleSourceTests {
             DaaiZekBroMigrationPlan.stages[1],
             from: DaaiZekBroSchemaV2.self,
             to: DaaiZekBroSchemaV3.self
+        )
+        assertLightweightStage(
+            DaaiZekBroMigrationPlan.stages[2],
+            from: DaaiZekBroSchemaV3.self,
+            to: DaaiZekBroSchemaV4.self
         )
     }
 
@@ -97,6 +117,31 @@ struct SchemaSingleSourceTests {
         let exercises = try context.fetch(FetchDescriptor<Exercise>())
         #expect(exercises.map(\.name) == ["Schema Smoke"])
         #expect(exercises.map(\.weightUnit) == [.kilograms])
+
+        context.insert(
+            WatchSetSubmissionRecord(
+                clientSubmissionID: "schema-ledger-smoke",
+                originalSessionID: UUID().uuidString,
+                exerciseOrderIndex: 0,
+                exerciseName: "Schema Smoke",
+                weight: 10,
+                weightUnit: .kilograms,
+                reps: 8,
+                rpe: nil,
+                completedAt: Date(timeIntervalSince1970: 1_800_000_101),
+                submittedAt: Date(timeIntervalSince1970: 1_800_000_100),
+                status: .needsUserAction,
+                reason: .syncTimeout,
+                message: "需要处理",
+                savedSetIndex: nil,
+                completedSetCount: nil
+            )
+        )
+        try context.save()
+
+        let ledgerEntries = try context.fetch(FetchDescriptor<WatchSetSubmissionRecord>())
+        #expect(ledgerEntries.map(\.clientSubmissionID) == ["schema-ledger-smoke"])
+        #expect(ledgerEntries.map(\.status) == [.needsUserAction])
     }
 
     @Test func sharedSchemaCreatesFileBackedContainer() throws {
@@ -187,6 +232,53 @@ struct SchemaSingleSourceTests {
         #expect(sessions.map(\.id) == [sessionID])
         #expect(sets.map { $0.session?.id } == [sessionID])
         #expect(historySections.flatMap(\.rows).map(\.id) == [sessionID])
+    }
+
+    @Test func v3FileBackedStoreMigratesToV4LedgerSchema() throws {
+        let storeURL = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString)
+            .appendingPathExtension("store")
+        defer { removeStoreFiles(at: storeURL) }
+
+        do {
+            let schema = Schema(versionedSchema: DaaiZekBroSchemaV3.self)
+            let configuration = ModelConfiguration(schema: schema, url: storeURL)
+            let container = try ModelContainer(for: schema, configurations: [configuration])
+            let context = ModelContext(container)
+            let exercise = DaaiZekBroSchemaV3.Exercise()
+            exercise.name = "V3 Migration Press"
+            exercise.weightUnitRawValue = WeightUnit.pounds.rawValue
+
+            context.insert(exercise)
+            try context.save()
+        }
+
+        let migratedContainer = try DaaiZekBroSchema.makeModelContainer(storeURL: storeURL)
+        let migratedContext = ModelContext(migratedContainer)
+        let exercises = try migratedContext.fetch(FetchDescriptor<Exercise>())
+
+        #expect(containerUsesSharedMigrationPlan(migratedContainer))
+        #expect(exercises.map(\.name) == ["V3 Migration Press"])
+        #expect(exercises.map(\.weightUnit) == [.pounds])
+
+        migratedContext.insert(
+            WatchSetSubmissionRecord(
+                clientSubmissionID: "v4-ledger-after-migration",
+                originalSessionID: UUID().uuidString,
+                exerciseOrderIndex: 0,
+                exerciseName: "V3 Migration Press",
+                weight: 100,
+                weightUnit: .pounds,
+                reps: 8,
+                status: .needsUserAction,
+                reason: .syncTimeout,
+                message: "需要处理"
+            )
+        )
+        try migratedContext.save()
+
+        let ledgerEntries = try migratedContext.fetch(FetchDescriptor<WatchSetSubmissionRecord>())
+        #expect(ledgerEntries.map(\.clientSubmissionID) == ["v4-ledger-after-migration"])
     }
 
     private func typeIdentifiers(_ types: [any PersistentModel.Type]) -> [ObjectIdentifier] {

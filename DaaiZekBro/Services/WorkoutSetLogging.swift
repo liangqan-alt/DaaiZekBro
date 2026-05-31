@@ -136,6 +136,42 @@ enum WorkoutSetLogging {
         )
     }
 
+    static func recordWatchSet(
+        sessionID: UUID,
+        exerciseOrderIndex: Int,
+        exerciseName: String,
+        weight: Double,
+        reps: Int,
+        rpe: Int?,
+        side: Side?,
+        completedAt: Date = Date(),
+        saveImmediately: Bool = true,
+        in context: ModelContext
+    ) throws -> WorkoutSet {
+        let session = try session(with: sessionID, in: context)
+        guard let exerciseDescriptor = try WorkoutSessionLifecycle.exerciseDescriptor(
+            orderIndex: exerciseOrderIndex,
+            for: session,
+            in: context
+        ),
+        exerciseDescriptor.name == exerciseName else {
+            throw WorkoutSetLoggingError.exerciseNotFound
+        }
+
+        return try recordSet(
+            session: session,
+            exerciseDescriptor: exerciseDescriptor,
+            weight: weight,
+            reps: reps,
+            rpe: rpe,
+            side: side,
+            completedAt: completedAt,
+            allowsEndedSession: true,
+            saveImmediately: saveImmediately,
+            in: context
+        )
+    }
+
     private static func recordSet(
         session: WorkoutSession,
         exerciseDescriptor: WorkoutSessionExerciseDescriptor,
@@ -144,9 +180,11 @@ enum WorkoutSetLogging {
         rpe: Int?,
         side: Side?,
         completedAt: Date,
+        allowsEndedSession: Bool = false,
+        saveImmediately: Bool = true,
         in context: ModelContext
     ) throws -> WorkoutSet {
-        guard session.endedAt == nil else {
+        guard allowsEndedSession || session.endedAt == nil else {
             throw WorkoutSetLoggingError.sessionAlreadyEnded
         }
 
@@ -173,7 +211,9 @@ enum WorkoutSetLogging {
         )
 
         context.insert(set)
-        try context.save()
+        if saveImmediately {
+            try context.save()
+        }
 
         return set
     }

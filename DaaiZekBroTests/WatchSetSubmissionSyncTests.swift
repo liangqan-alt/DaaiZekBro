@@ -10,6 +10,8 @@ struct WatchSetSubmissionMessageTests {
             clientSubmissionID: "watch-submit-1",
             sentAt: 1_800_000_100,
             sessionID: "00000000-0000-0000-0000-000000000111",
+            sessionName: "Push A",
+            sessionStartedAt: 1_800_000_000,
             exerciseOrderIndex: 1,
             exerciseName: "Lateral Raise",
             weight: 100,
@@ -17,7 +19,8 @@ struct WatchSetSubmissionMessageTests {
             reps: 12,
             rpe: 8,
             side: "right",
-            completedAt: 1_800_000_101
+            completedAt: 1_800_000_101,
+            manualReviewReason: .syncTimeout
         )
 
         let decoded = try WatchSetSubmissionMessage(propertyList: message.propertyList)
@@ -25,6 +28,9 @@ struct WatchSetSubmissionMessageTests {
         #expect(decoded == message)
         #expect(decoded.propertyList["kind"] as? String == "setSubmission.submit")
         #expect(decoded.propertyList["clientSubmissionID"] as? String == "watch-submit-1")
+        #expect(decoded.propertyList["sessionName"] as? String == "Push A")
+        #expect(decoded.propertyList["sessionStartedAt"] as? TimeInterval == 1_800_000_000)
+        #expect(decoded.propertyList["manualReviewReason"] as? String == "syncTimeout")
     }
 
     @Test func setSubmissionAckRoundTripsThroughPropertyList() throws {
@@ -38,10 +44,24 @@ struct WatchSetSubmissionMessageTests {
             errorCode: .invalidWeight,
             message: "bad weight"
         )
+        let needsUserAction = WatchSetSubmissionAck.needsUserAction(
+            clientSubmissionID: "watch-submit-3",
+            reason: .syncTimeout,
+            message: "需要在 iPhone 上处理"
+        )
+        let discarded = WatchSetSubmissionAck.discarded(
+            clientSubmissionID: "watch-submit-4",
+            message: "已丢弃"
+        )
 
         #expect(try WatchSetSubmissionAck(propertyList: saved.propertyList) == saved)
         #expect(try WatchSetSubmissionAck(propertyList: rejected.propertyList) == rejected)
+        #expect(try WatchSetSubmissionAck(propertyList: needsUserAction.propertyList) == needsUserAction)
+        #expect(try WatchSetSubmissionAck(propertyList: discarded.propertyList) == discarded)
         #expect(saved.propertyList["status"] as? String == "saved")
+        #expect(needsUserAction.propertyList["status"] as? String == "needsUserAction")
+        #expect(needsUserAction.propertyList["manualReviewReason"] as? String == "syncTimeout")
+        #expect(discarded.propertyList["status"] as? String == "discarded")
         #expect(rejected.propertyList["errorCode"] as? String == "invalidWeight")
     }
 
@@ -117,6 +137,17 @@ struct PhoneWatchSetSubmissionHandlerTests {
         #expect(savedSets[0].reps == 8)
         #expect(savedSets[0].rpe == nil)
         #expect(savedSets[0].side == nil)
+
+        let ledger = try #require(try fetchLedgerEntry(submission.clientSubmissionID, in: context))
+        #expect(ledger.status == .saved)
+        #expect(ledger.originalSessionID == session.id.uuidString)
+        #expect(ledger.exerciseOrderIndex == 0)
+        #expect(ledger.exerciseName == "Bench Press")
+        #expect(ledger.weight == 80)
+        #expect(ledger.weightUnitRawValue == "kg")
+        #expect(ledger.reps == 8)
+        #expect(ledger.savedSetIndex == 1)
+        #expect(ledger.completedSetCount == 1)
     }
 
     @Test func submissionUsesOrderIndexForDuplicateExerciseNamesAndConvertsPounds() throws {
@@ -183,6 +214,293 @@ struct PhoneWatchSetSubmissionHandlerTests {
         #expect(extraSideAck.status == .rejected)
         #expect(extraSideAck.errorCode == .sideNotAllowed)
         #expect(try context.fetch(FetchDescriptor<WorkoutSet>()).isEmpty)
+        #expect(try context.fetch(FetchDescriptor<WatchSetSubmissionRecord>()).isEmpty)
+    }
+
+    @Test func duplicateSubmissionReturnsExistingAckWithoutSavingAnotherSet() throws {
+        let context = try makeInMemoryContext()
+        let session = try makeSession(
+            templateName: "Push A",
+            exercises: [
+                Exercise(name: "Bench Press", defaultRestSeconds: 120, isUnilateral: false, weightUnit: .kilograms),
+            ],
+            in: context
+        )
+        let submission = makeSubmission(
+            clientSubmissionID: "watch-submit-duplicate",
+            sessionID: session.id,
+            exerciseOrderIndex: 0,
+            exerciseName: "Bench Press",
+            weight: 80,
+            reps: 8
+        )
+
+        let firstAck = PhoneWatchSetSubmissionHandler.handle(submission, in: context)
+        let duplicateAck = PhoneWatchSetSubmissionHandler.handle(submission, in: context)
+
+        #expect(firstAck == duplicateAck)
+        #expect(duplicateAck.status == .saved)
+        #expect(try WorkoutSetLogging.setsForExercise(sessionID: session.id, exerciseOrderIndex: 0, in: context).count == 1)
+        #expect(try context.fetch(FetchDescriptor<WatchSetSubmissionRecord>()).count == 1)
+    }
+
+    @Test func endedSessionSubmissionStillSavesAndIsDeduplicated() throws {
+        let context = try makeInMemoryContext()
+        let session = try makeSession(
+            templateName: "Push A",
+            exercises: [
+                Exercise(name: "Bench Press", defaultRestSeconds: 120, isUnilateral: false, weightUnit: .kilograms),
+            ],
+            in: context
+        )
+        try WorkoutSessionLifecycle.end(session, in: context)
+        let submission = makeSubmission(
+            clientSubmissionID: "watch-submit-ended",
+            sessionID: session.id,
+            exerciseOrderIndex: 0,
+            exerciseName: "Bench Press",
+            weight: 80,
+            reps: 8
+        )
+
+        let ack = PhoneWatchSetSubmissionHandler.handle(submission, in: context)
+        let duplicateAck = PhoneWatchSetSubmissionHandler.handle(submission, in: context)
+
+        #expect(ack.status == .saved)
+        #expect(duplicateAck == ack)
+        #expect(try WorkoutSetLogging.setsForExercise(sessionID: session.id, exerciseOrderIndex: 0, in: context).count == 1)
+    }
+
+    @Test func missingSessionMissingExerciseAndSyncTimeoutCreateNeedsUserActionLedger() throws {
+        let context = try makeInMemoryContext()
+        let existingSession = try makeSession(
+            templateName: "Push A",
+            exercises: [
+                Exercise(name: "Bench Press", defaultRestSeconds: 120, isUnilateral: false, weightUnit: .kilograms),
+            ],
+            in: context
+        )
+        let missingSession = makeSubmission(
+            clientSubmissionID: "watch-submit-missing-session",
+            sessionID: UUID(),
+            exerciseOrderIndex: 0,
+            exerciseName: "Bench Press"
+        )
+        let missingExercise = makeSubmission(
+            clientSubmissionID: "watch-submit-missing-exercise",
+            sessionID: existingSession.id,
+            exerciseOrderIndex: 9,
+            exerciseName: "Removed Exercise"
+        )
+        let timedOut = makeSubmission(
+            clientSubmissionID: "watch-submit-timeout",
+            sessionID: existingSession.id,
+            exerciseOrderIndex: 0,
+            exerciseName: "Bench Press",
+            manualReviewReason: .syncTimeout
+        )
+
+        let missingSessionAck = PhoneWatchSetSubmissionHandler.handle(missingSession, in: context)
+        let missingExerciseAck = PhoneWatchSetSubmissionHandler.handle(missingExercise, in: context)
+        let timedOutAck = PhoneWatchSetSubmissionHandler.handle(timedOut, in: context)
+
+        #expect(missingSessionAck.status == .needsUserAction)
+        #expect(missingSessionAck.manualReviewReason == .sessionNotFound)
+        #expect(missingExerciseAck.status == .needsUserAction)
+        #expect(missingExerciseAck.manualReviewReason == .exerciseNotFound)
+        #expect(timedOutAck.status == .needsUserAction)
+        #expect(timedOutAck.manualReviewReason == .syncTimeout)
+        #expect(try context.fetch(FetchDescriptor<WorkoutSet>()).isEmpty)
+
+        let missingSessionLedger = try #require(try fetchLedgerEntry("watch-submit-missing-session", in: context))
+        let missingExerciseLedger = try #require(try fetchLedgerEntry("watch-submit-missing-exercise", in: context))
+        let timedOutLedger = try #require(try fetchLedgerEntry("watch-submit-timeout", in: context))
+        #expect(missingSessionLedger.status == .needsUserAction)
+        #expect(missingSessionLedger.reason == .sessionNotFound)
+        #expect(missingSessionLedger.originalSessionName == "Push A")
+        #expect(missingSessionLedger.originalSessionStartedAt == Date(timeIntervalSince1970: 1_800_000_000))
+        #expect(missingSessionLedger.exerciseName == "Bench Press")
+        #expect(missingSessionLedger.weight == 10)
+        #expect(missingSessionLedger.reps == 8)
+        #expect(missingSessionLedger.completedAt == Date(timeIntervalSince1970: 1_800_000_101))
+        #expect(missingExerciseLedger.reason == .exerciseNotFound)
+        #expect(timedOutLedger.reason == .syncTimeout)
+    }
+
+    @Test func orderIndexNameMismatchCreatesNeedsUserActionInsteadOfSavingToWrongExercise() throws {
+        let context = try makeInMemoryContext()
+        let session = try makeSession(
+            templateName: "Push A",
+            exercises: [
+                Exercise(name: "Bench Press", defaultRestSeconds: 120, isUnilateral: false, weightUnit: .kilograms),
+            ],
+            in: context
+        )
+        let submission = makeSubmission(
+            clientSubmissionID: "watch-submit-renamed-action",
+            sessionID: session.id,
+            exerciseOrderIndex: 0,
+            exerciseName: "Removed Press"
+        )
+
+        let ack = PhoneWatchSetSubmissionHandler.handle(submission, in: context)
+
+        #expect(ack.status == .needsUserAction)
+        #expect(ack.manualReviewReason == .exerciseNotFound)
+        #expect(try WorkoutSetLogging.setsForExercise(sessionID: session.id, exerciseOrderIndex: 0, in: context).isEmpty)
+
+        let ledger = try #require(try fetchLedgerEntry(submission.clientSubmissionID, in: context))
+        #expect(ledger.status == .needsUserAction)
+        #expect(ledger.reason == .exerciseNotFound)
+    }
+
+    @Test func reviewServiceRelocatesNeedsUserActionRecordToMatchingSession() throws {
+        let context = try makeInMemoryContext()
+        let targetSession = try makeSession(
+            templateName: "Push A",
+            exercises: [
+                Exercise(name: "Lateral Raise", defaultRestSeconds: 60, isUnilateral: true, weightUnit: .kilograms),
+            ],
+            in: context
+        )
+        try WorkoutSessionLifecycle.end(targetSession, in: context)
+        let record = WatchSetSubmissionRecord(
+            clientSubmissionID: "watch-submit-review-relocate",
+            originalSessionID: UUID().uuidString,
+            originalSessionName: "Deleted Push",
+            originalSessionStartedAt: Date(timeIntervalSince1970: 1_800_000_000),
+            exerciseOrderIndex: 0,
+            exerciseName: "Lateral Raise",
+            weight: 12.5,
+            weightUnit: .kilograms,
+            reps: 12,
+            rpe: 8,
+            side: .left,
+            completedAt: Date(timeIntervalSince1970: 1_800_000_101),
+            submittedAt: Date(timeIntervalSince1970: 1_800_000_100),
+            status: .needsUserAction,
+            reason: .sessionNotFound,
+            message: "原训练不存在"
+        )
+        context.insert(record)
+        try context.save()
+
+        let candidates = try WatchSetSubmissionReviewService.candidates(for: record, in: context)
+        #expect(candidates.map(\.sessionID) == [targetSession.id])
+        #expect(candidates.map(\.exerciseOrderIndex) == [0])
+
+        let set = try WatchSetSubmissionReviewService.relocate(
+            record: record,
+            toSessionID: targetSession.id,
+            exerciseOrderIndex: 0,
+            in: context
+        )
+
+        #expect(set.session?.id == targetSession.id)
+        #expect(set.exerciseNameSnapshot == "Lateral Raise")
+        #expect(set.side == .left)
+        #expect(record.status == .saved)
+        #expect(record.savedSetIndex == 1)
+        #expect(record.completedSetCount == 1)
+        #expect(record.resolvedSessionID == targetSession.id.uuidString)
+    }
+
+    @Test func relocatedNeedsUserActionRecordReturnsSavedAckOnDuplicateSubmission() throws {
+        let context = try makeInMemoryContext()
+        let targetSession = try makeSession(
+            templateName: "Push A",
+            exercises: [
+                Exercise(name: "Bench Press", defaultRestSeconds: 120, isUnilateral: false, weightUnit: .kilograms),
+            ],
+            in: context
+        )
+        _ = try WorkoutSetLogging.recordSet(
+            sessionID: targetSession.id,
+            exerciseOrderIndex: 0,
+            weight: 80,
+            reps: 8,
+            rpe: nil,
+            side: nil,
+            completedAt: Date(timeIntervalSince1970: 1_800_000_001),
+            in: context
+        )
+        let submission = makeSubmission(
+            clientSubmissionID: "watch-submit-review-relocate-duplicate",
+            sessionID: UUID(),
+            exerciseOrderIndex: 0,
+            exerciseName: "Bench Press",
+            weight: 82.5,
+            reps: 6
+        )
+
+        let needsUserActionAck = PhoneWatchSetSubmissionHandler.handle(submission, in: context)
+        let record = try #require(try fetchLedgerEntry(submission.clientSubmissionID, in: context))
+        try WatchSetSubmissionReviewService.relocate(
+            record: record,
+            toSessionID: targetSession.id,
+            exerciseOrderIndex: 0,
+            in: context
+        )
+        let duplicateAck = PhoneWatchSetSubmissionHandler.handle(submission, in: context)
+
+        #expect(needsUserActionAck.status == .needsUserAction)
+        #expect(duplicateAck.status == .saved)
+        #expect(duplicateAck.savedSetIndex == 2)
+        #expect(duplicateAck.completedSetCount == 2)
+        #expect(try WorkoutSetLogging.setsForExercise(sessionID: targetSession.id, exerciseOrderIndex: 0, in: context).count == 2)
+        #expect(try context.fetch(FetchDescriptor<WatchSetSubmissionRecord>()).count == 1)
+    }
+
+    @Test func reviewCandidatesRequireMatchingExerciseAndSideCompatibility() throws {
+        let context = try makeInMemoryContext()
+        let bilateralSession = try makeSession(
+            templateName: "Push A",
+            exercises: [
+                Exercise(name: "Lateral Raise", defaultRestSeconds: 60, isUnilateral: false, weightUnit: .kilograms),
+            ],
+            in: context
+        )
+        try WorkoutSessionLifecycle.end(bilateralSession, in: context)
+        let otherSession = try makeSession(
+            templateName: "Pull A",
+            exercises: [
+                Exercise(name: "Cable Row", defaultRestSeconds: 90, isUnilateral: false, weightUnit: .kilograms),
+            ],
+            in: context
+        )
+        try WorkoutSessionLifecycle.end(otherSession, in: context)
+        let record = WatchSetSubmissionRecord(
+            clientSubmissionID: "watch-submit-review-no-target",
+            exerciseName: "Lateral Raise",
+            weight: 12.5,
+            reps: 12,
+            side: .left,
+            status: .needsUserAction,
+            reason: .exerciseNotFound
+        )
+        context.insert(record)
+        try context.save()
+
+        #expect(try WatchSetSubmissionReviewService.candidates(for: record, in: context).isEmpty)
+    }
+
+    @Test func discardedRecordReturnsDiscardedAckOnDuplicateSubmission() throws {
+        let context = try makeInMemoryContext()
+        let submission = makeSubmission(
+            clientSubmissionID: "watch-submit-discarded",
+            sessionID: UUID(),
+            exerciseOrderIndex: 0,
+            exerciseName: "Bench Press"
+        )
+        let firstAck = PhoneWatchSetSubmissionHandler.handle(submission, in: context)
+        let record = try #require(try fetchLedgerEntry(submission.clientSubmissionID, in: context))
+
+        try WatchSetSubmissionReviewService.discard(record: record, in: context)
+        let duplicateAck = PhoneWatchSetSubmissionHandler.handle(submission, in: context)
+
+        #expect(firstAck.status == .needsUserAction)
+        #expect(duplicateAck.status == .discarded)
+        #expect(try context.fetch(FetchDescriptor<WatchSetSubmissionRecord>()).count == 1)
     }
 }
 
@@ -342,19 +660,25 @@ private func makeSession(
 }
 
 private func makeSubmission(
+    clientSubmissionID: String = UUID().uuidString,
     sessionID: UUID,
+    sessionName: String = "Push A",
+    sessionStartedAt: TimeInterval = 1_800_000_000,
     exerciseOrderIndex: Int,
     exerciseName: String,
     weight: Double = 10,
     weightUnit: String = "kg",
     reps: Int = 8,
     rpe: Int? = nil,
-    side: String? = nil
+    side: String? = nil,
+    manualReviewReason: WatchSetSubmissionManualReviewReason? = nil
 ) -> WatchSetSubmissionMessage {
     WatchSetSubmissionMessage(
-        clientSubmissionID: UUID().uuidString,
+        clientSubmissionID: clientSubmissionID,
         sentAt: 1_800_000_100,
         sessionID: sessionID.uuidString,
+        sessionName: sessionName,
+        sessionStartedAt: sessionStartedAt,
         exerciseOrderIndex: exerciseOrderIndex,
         exerciseName: exerciseName,
         weight: weight,
@@ -362,8 +686,24 @@ private func makeSubmission(
         reps: reps,
         rpe: rpe,
         side: side,
-        completedAt: 1_800_000_101
+        completedAt: 1_800_000_101,
+        manualReviewReason: manualReviewReason
     )
+}
+
+@MainActor
+private func fetchLedgerEntry(
+    _ clientSubmissionID: String,
+    in context: ModelContext
+) throws -> WatchSetSubmissionRecord? {
+    var descriptor = FetchDescriptor<WatchSetSubmissionRecord>(
+        predicate: #Predicate<WatchSetSubmissionRecord> { entry in
+            entry.clientSubmissionID == clientSubmissionID
+        }
+    )
+    descriptor.fetchLimit = 1
+
+    return try context.fetch(descriptor).first
 }
 
 private func baseSubmissionPropertyList(

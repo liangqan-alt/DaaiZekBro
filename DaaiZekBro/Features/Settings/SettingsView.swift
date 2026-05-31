@@ -2,6 +2,7 @@ import SwiftUI
 import SwiftData
 
 struct SettingsView: View {
+    @Query private var watchSubmissionRecords: [WatchSetSubmissionRecord]
     @State private var isShowingExportSheet = false
     @State private var exportURL: URL?
     @State private var errorMessage: String?
@@ -64,6 +65,48 @@ struct SettingsView: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("workout-history-button")
+                }
+
+                DZSection {
+                    NavigationLink {
+                        WatchSetSubmissionReviewView()
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "applewatch")
+                                .foregroundStyle(DZColor.pump500)
+
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("Watch 需用户处理")
+                                    .foregroundStyle(DZColor.ink900)
+
+                                Text(watchSubmissionReviewSubtitle)
+                                    .font(.caption)
+                                    .foregroundStyle(DZColor.ink700)
+                            }
+
+                            Spacer()
+
+                            if unresolvedWatchSubmissionCount > 0 {
+                                Text("\(unresolvedWatchSubmissionCount)")
+                                    .font(DZFont.mono(size: 13, weight: .bold))
+                                    .foregroundStyle(DZColor.fgOnPump)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(DZColor.skull500)
+                                    .clipShape(Capsule())
+                            }
+
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(DZColor.fgFaint)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("watch-submission-review-entry")
                 }
 
                 DZSection {
@@ -158,6 +201,18 @@ struct SettingsView: View {
         } message: {
             Text(errorMessage ?? "")
         }
+    }
+
+    private var unresolvedWatchSubmissionCount: Int {
+        watchSubmissionRecords.filter { $0.status == .needsUserAction }.count
+    }
+
+    private var watchSubmissionReviewSubtitle: String {
+        if unresolvedWatchSubmissionCount == 0 {
+            return "暂无待处理记录"
+        }
+
+        return "\(unresolvedWatchSubmissionCount) 条待归位或丢弃"
     }
 }
 

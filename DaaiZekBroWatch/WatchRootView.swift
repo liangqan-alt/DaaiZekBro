@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct WatchRootView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @ObservedObject var sessionManager: WatchSessionManager
 
     var body: some View {
@@ -8,9 +9,13 @@ struct WatchRootView: View {
             sessionManager.requestTrainingState()
         }
         .onAppear {
+            sessionManager.updateAppActive(scenePhase == .active)
             sessionManager.activate()
             sessionManager.refreshFromApplicationContext()
             sessionManager.requestTrainingState()
+        }
+        .onChange(of: scenePhase) { _, nextPhase in
+            sessionManager.updateAppActive(nextPhase == .active)
         }
     }
 }
@@ -75,7 +80,19 @@ private struct WatchTrainingListView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            WatchHeaderView(title: snapshot.sessionName, isOffline: isOffline)
+            WatchHeaderView(
+                title: snapshot.sessionName,
+                isOffline: isOffline,
+                pendingCount: sessionManager.pendingSubmissionCount,
+                needsUserActionCount: sessionManager.needsUserActionSubmissionCount
+            )
+
+            if sessionManager.pendingSubmissionCount > 0 || sessionManager.needsUserActionSubmissionCount > 0 {
+                WatchSyncQueueBanner(
+                    pendingCount: sessionManager.pendingSubmissionCount,
+                    needsUserActionCount: sessionManager.needsUserActionSubmissionCount
+                )
+            }
 
             if isOffline {
                 WatchOfflineBanner()
@@ -102,6 +119,8 @@ private struct WatchTrainingListView: View {
 private struct WatchHeaderView: View {
     let title: String
     let isOffline: Bool
+    let pendingCount: Int
+    let needsUserActionCount: Int
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -114,14 +133,71 @@ private struct WatchHeaderView: View {
 
             HStack(spacing: 4) {
                 Circle()
-                    .fill(isOffline ? WatchPalette.unreachable : WatchPalette.sync)
+                    .fill(statusColor)
                     .frame(width: 6, height: 6)
 
-                Text(isOffline ? "离线" : "已连接")
+                Text(statusText)
                     .font(.system(size: 11, weight: .semibold, design: .rounded))
                     .foregroundStyle(WatchPalette.secondaryText)
             }
         }
+    }
+
+    private var statusText: String {
+        if needsUserActionCount > 0 {
+            return "需处理"
+        }
+
+        if pendingCount > 0 {
+            return "待同步"
+        }
+
+        return isOffline ? "离线" : "已连接"
+    }
+
+    private var statusColor: Color {
+        if needsUserActionCount > 0 {
+            return WatchPalette.attention
+        }
+
+        if pendingCount > 0 {
+            return WatchPalette.pending
+        }
+
+        return isOffline ? WatchPalette.unreachable : WatchPalette.sync
+    }
+}
+
+private struct WatchSyncQueueBanner: View {
+    let pendingCount: Int
+    let needsUserActionCount: Int
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if pendingCount > 0 {
+                syncChip(text: "待同步 \(pendingCount)", color: WatchPalette.pending, background: WatchPalette.pendingBackground)
+            }
+
+            if needsUserActionCount > 0 {
+                syncChip(text: "需处理 \(needsUserActionCount)", color: WatchPalette.attention, background: WatchPalette.attentionBackground)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(WatchPalette.banner)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private func syncChip(text: String, color: Color, background: Color) -> some View {
+        Text(text)
+            .font(.system(size: 10, weight: .bold, design: .rounded))
+            .monospacedDigit()
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .foregroundStyle(color)
+            .background(background)
+            .clipShape(Capsule())
     }
 }
 
@@ -258,6 +334,10 @@ enum WatchPalette {
     static let caramel = Color(red: 0.851, green: 0.651, blue: 0.431)
     static let sync = Color(red: 0.510, green: 0.761, blue: 0.353)
     static let syncBackground = sync.opacity(0.14)
+    static let pending = Color(red: 0.871, green: 0.651, blue: 0.251)
+    static let pendingBackground = pending.opacity(0.16)
+    static let attention = Color(red: 0.855, green: 0.333, blue: 0.251)
+    static let attentionBackground = attention.opacity(0.16)
     static let unreachable = Color(red: 0.549, green: 0.514, blue: 0.471)
     static let offline = Color(red: 0.718, green: 0.675, blue: 0.612)
     static let offlineBackground = Color(red: 0.984, green: 0.961, blue: 0.914).opacity(0.08)

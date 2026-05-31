@@ -5,9 +5,16 @@
 
 ## [Unreleased]
 
+## [V0.40] - 2026-06-01
+
 ### 新增
 - 增加 Apple Watch 本地休息计时器：Watch 在线记录成功后按动作默认休息时间倒计时，支持 `+30` 秒、跳过/下一组、归零震动、抬腕按实际流逝恢复，以及无通知权限时只展示已归零。
 - 增加 Watch 休息计时核心回归测试，覆盖默认休息时间、实际流逝恢复、归零提醒、腕向下跨归零补发/降级、`+30`、跳过和单双侧启动策略。
+- 增加 Watch 记录提交 pending 队列、持久去重账本和 iPhone「需用户处理」入口，支持离线确认后待同步、恢复后重试、同步超时/目标缺失后的归位或丢弃。
+- 增加 Watch 记录可靠性回归测试，覆盖重复提交去重、ack 丢失重试、已结束训练自动落库、动作错配转人工处理、归位/丢弃闭环、pending overlay 和 V3 -> V4 file-backed migration。
+
+### 变更
+- SwiftData schema 升级到 `DaaiZekBroSchemaV4`，通过 `V3 -> V4` lightweight migration 新增 `WatchSetSubmissionRecord` 提交账本。
 
 ## [V0.39] - 2026-05-31
 

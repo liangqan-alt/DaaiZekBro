@@ -1,5 +1,11 @@
 import Foundation
 
+enum WatchSetSubmissionManualReviewReason: String {
+    case syncTimeout
+    case sessionNotFound
+    case exerciseNotFound
+}
+
 struct WatchSetSubmissionMessage: Equatable {
     nonisolated static let schemaVersion = 1
     nonisolated static let kind = "setSubmission.submit"
@@ -10,6 +16,8 @@ struct WatchSetSubmissionMessage: Equatable {
         case invalidClientSubmissionID
         case invalidSentAt
         case invalidSessionID
+        case invalidSessionName
+        case invalidSessionStartedAt
         case invalidExerciseOrderIndex
         case invalidExerciseName
         case invalidWeight
@@ -18,11 +26,14 @@ struct WatchSetSubmissionMessage: Equatable {
         case invalidRPE
         case invalidSide
         case invalidCompletedAt
+        case invalidManualReviewReason
     }
 
     let clientSubmissionID: String
     let sentAt: TimeInterval
     let sessionID: String
+    let sessionName: String?
+    let sessionStartedAt: TimeInterval?
     let exerciseOrderIndex: Int
     let exerciseName: String
     let weight: Double
@@ -31,6 +42,7 @@ struct WatchSetSubmissionMessage: Equatable {
     let rpe: Int?
     let side: String?
     let completedAt: TimeInterval
+    let manualReviewReason: WatchSetSubmissionManualReviewReason?
 
     nonisolated var propertyList: [String: Any] {
         var propertyList: [String: Any] = [
@@ -55,6 +67,18 @@ struct WatchSetSubmissionMessage: Equatable {
             propertyList["side"] = side
         }
 
+        if let sessionName {
+            propertyList["sessionName"] = sessionName
+        }
+
+        if let sessionStartedAt {
+            propertyList["sessionStartedAt"] = sessionStartedAt
+        }
+
+        if let manualReviewReason {
+            propertyList["manualReviewReason"] = manualReviewReason.rawValue
+        }
+
         return propertyList
     }
 
@@ -62,6 +86,8 @@ struct WatchSetSubmissionMessage: Equatable {
         clientSubmissionID: String,
         sentAt: TimeInterval,
         sessionID: String,
+        sessionName: String? = nil,
+        sessionStartedAt: TimeInterval? = nil,
         exerciseOrderIndex: Int,
         exerciseName: String,
         weight: Double,
@@ -69,11 +95,14 @@ struct WatchSetSubmissionMessage: Equatable {
         reps: Int,
         rpe: Int?,
         side: String?,
-        completedAt: TimeInterval
+        completedAt: TimeInterval,
+        manualReviewReason: WatchSetSubmissionManualReviewReason? = nil
     ) {
         self.clientSubmissionID = clientSubmissionID
         self.sentAt = sentAt
         self.sessionID = sessionID
+        self.sessionName = sessionName
+        self.sessionStartedAt = sessionStartedAt
         self.exerciseOrderIndex = exerciseOrderIndex
         self.exerciseName = exerciseName
         self.weight = weight
@@ -82,6 +111,7 @@ struct WatchSetSubmissionMessage: Equatable {
         self.rpe = rpe
         self.side = side
         self.completedAt = completedAt
+        self.manualReviewReason = manualReviewReason
     }
 
     nonisolated init(propertyList: [String: Any]) throws {
@@ -107,6 +137,28 @@ struct WatchSetSubmissionMessage: Equatable {
         guard let sessionID = propertyList["sessionID"] as? String,
               UUID(uuidString: sessionID) != nil else {
             throw ParseError.invalidSessionID
+        }
+
+        let sessionName: String?
+        if let value = propertyList["sessionName"] {
+            guard let parsed = value as? String,
+                  parsed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+                throw ParseError.invalidSessionName
+            }
+            sessionName = parsed
+        } else {
+            sessionName = nil
+        }
+
+        let sessionStartedAt: TimeInterval?
+        if let value = propertyList["sessionStartedAt"] {
+            guard let parsed = value as? TimeInterval,
+                  parsed.isFinite else {
+                throw ParseError.invalidSessionStartedAt
+            }
+            sessionStartedAt = parsed
+        } else {
+            sessionStartedAt = nil
         }
 
         guard let exerciseOrderIndex = propertyList["exerciseOrderIndex"] as? Int,
@@ -162,9 +214,22 @@ struct WatchSetSubmissionMessage: Equatable {
             throw ParseError.invalidCompletedAt
         }
 
+        let manualReviewReason: WatchSetSubmissionManualReviewReason?
+        if let value = propertyList["manualReviewReason"] {
+            guard let parsed = value as? String,
+                  let reason = WatchSetSubmissionManualReviewReason(rawValue: parsed) else {
+                throw ParseError.invalidManualReviewReason
+            }
+            manualReviewReason = reason
+        } else {
+            manualReviewReason = nil
+        }
+
         self.clientSubmissionID = clientSubmissionID
         self.sentAt = sentAt
         self.sessionID = sessionID
+        self.sessionName = sessionName
+        self.sessionStartedAt = sessionStartedAt
         self.exerciseOrderIndex = exerciseOrderIndex
         self.exerciseName = exerciseName
         self.weight = weight
@@ -173,6 +238,7 @@ struct WatchSetSubmissionMessage: Equatable {
         self.rpe = rpe
         self.side = side
         self.completedAt = completedAt
+        self.manualReviewReason = manualReviewReason
     }
 }
 
@@ -182,6 +248,8 @@ struct WatchSetSubmissionAck: Equatable {
 
     enum Status: String {
         case saved
+        case needsUserAction
+        case discarded
         case rejected
     }
 
@@ -207,6 +275,7 @@ struct WatchSetSubmissionAck: Equatable {
         case invalidStatus
         case invalidSavedSetIndex
         case invalidCompletedSetCount
+        case invalidManualReviewReason
         case invalidErrorCode
         case invalidMessage
     }
@@ -215,6 +284,7 @@ struct WatchSetSubmissionAck: Equatable {
     let status: Status
     let savedSetIndex: Int?
     let completedSetCount: Int?
+    let manualReviewReason: WatchSetSubmissionManualReviewReason?
     let errorCode: ErrorCode?
     let message: String?
 
@@ -232,6 +302,10 @@ struct WatchSetSubmissionAck: Equatable {
 
         if let completedSetCount {
             propertyList["completedSetCount"] = completedSetCount
+        }
+
+        if let manualReviewReason {
+            propertyList["manualReviewReason"] = manualReviewReason.rawValue
         }
 
         if let errorCode {
@@ -255,6 +329,7 @@ struct WatchSetSubmissionAck: Equatable {
             status: .saved,
             savedSetIndex: savedSetIndex,
             completedSetCount: completedSetCount,
+            manualReviewReason: nil,
             errorCode: nil,
             message: nil
         )
@@ -270,7 +345,39 @@ struct WatchSetSubmissionAck: Equatable {
             status: .rejected,
             savedSetIndex: nil,
             completedSetCount: nil,
+            manualReviewReason: nil,
             errorCode: errorCode,
+            message: message
+        )
+    }
+
+    nonisolated static func needsUserAction(
+        clientSubmissionID: String,
+        reason: WatchSetSubmissionManualReviewReason,
+        message: String
+    ) -> WatchSetSubmissionAck {
+        WatchSetSubmissionAck(
+            clientSubmissionID: clientSubmissionID,
+            status: .needsUserAction,
+            savedSetIndex: nil,
+            completedSetCount: nil,
+            manualReviewReason: reason,
+            errorCode: nil,
+            message: message
+        )
+    }
+
+    nonisolated static func discarded(
+        clientSubmissionID: String,
+        message: String = "已丢弃"
+    ) -> WatchSetSubmissionAck {
+        WatchSetSubmissionAck(
+            clientSubmissionID: clientSubmissionID,
+            status: .discarded,
+            savedSetIndex: nil,
+            completedSetCount: nil,
+            manualReviewReason: nil,
+            errorCode: nil,
             message: message
         )
     }
@@ -311,8 +418,40 @@ struct WatchSetSubmissionAck: Equatable {
             self.status = status
             self.savedSetIndex = savedSetIndex
             self.completedSetCount = completedSetCount
+            self.manualReviewReason = nil
             self.errorCode = nil
             self.message = nil
+        case .needsUserAction:
+            guard let reasonValue = propertyList["manualReviewReason"] as? String,
+                  let manualReviewReason = WatchSetSubmissionManualReviewReason(rawValue: reasonValue) else {
+                throw ParseError.invalidManualReviewReason
+            }
+
+            guard let message = propertyList["message"] as? String,
+                  message.isEmpty == false else {
+                throw ParseError.invalidMessage
+            }
+
+            self.clientSubmissionID = clientSubmissionID
+            self.status = status
+            self.savedSetIndex = nil
+            self.completedSetCount = nil
+            self.manualReviewReason = manualReviewReason
+            self.errorCode = nil
+            self.message = message
+        case .discarded:
+            guard let message = propertyList["message"] as? String,
+                  message.isEmpty == false else {
+                throw ParseError.invalidMessage
+            }
+
+            self.clientSubmissionID = clientSubmissionID
+            self.status = status
+            self.savedSetIndex = nil
+            self.completedSetCount = nil
+            self.manualReviewReason = nil
+            self.errorCode = nil
+            self.message = message
         case .rejected:
             guard let errorCodeValue = propertyList["errorCode"] as? String,
                   let errorCode = ErrorCode(rawValue: errorCodeValue) else {
@@ -328,6 +467,7 @@ struct WatchSetSubmissionAck: Equatable {
             self.status = status
             self.savedSetIndex = nil
             self.completedSetCount = nil
+            self.manualReviewReason = nil
             self.errorCode = errorCode
             self.message = message
         }
@@ -338,6 +478,7 @@ struct WatchSetSubmissionAck: Equatable {
         status: Status,
         savedSetIndex: Int?,
         completedSetCount: Int?,
+        manualReviewReason: WatchSetSubmissionManualReviewReason?,
         errorCode: ErrorCode?,
         message: String?
     ) {
@@ -345,6 +486,7 @@ struct WatchSetSubmissionAck: Equatable {
         self.status = status
         self.savedSetIndex = savedSetIndex
         self.completedSetCount = completedSetCount
+        self.manualReviewReason = manualReviewReason
         self.errorCode = errorCode
         self.message = message
     }
