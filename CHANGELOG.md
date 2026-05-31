@@ -5,6 +5,14 @@
 
 ## [Unreleased]
 
+## [V0.42] - 2026-06-01
+
+### 新增
+- 增加 V3 -> V4 file-backed migration 回归测试，覆盖 session snapshot 重量单位字段迁移后仍保持可读。
+
+### 修复
+- 修复 V0.34/V3 旧本地数据升级到 V4 时，`WorkoutSessionExerciseSnapshot` 重量单位字段名不匹配导致 SwiftData 本地数据库无法打开的问题。
+
 ## [V0.41] - 2026-06-01
 
 ### 新增

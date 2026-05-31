@@ -248,18 +248,26 @@ struct SchemaSingleSourceTests {
             let exercise = DaaiZekBroSchemaV3.Exercise()
             exercise.name = "V3 Migration Press"
             exercise.weightUnitRawValue = WeightUnit.pounds.rawValue
+            let snapshot = DaaiZekBroSchemaV3.WorkoutSessionExerciseSnapshot()
+            snapshot.exercise = exercise
+            snapshot.exerciseNameSnapshot = exercise.name
+            snapshot.weightUnitRawValueSnapshot = WeightUnit.pounds.rawValue
 
             context.insert(exercise)
+            context.insert(snapshot)
             try context.save()
         }
 
         let migratedContainer = try DaaiZekBroSchema.makeModelContainer(storeURL: storeURL)
         let migratedContext = ModelContext(migratedContainer)
         let exercises = try migratedContext.fetch(FetchDescriptor<Exercise>())
+        let snapshots = try migratedContext.fetch(FetchDescriptor<WorkoutSessionExerciseSnapshot>())
 
         #expect(containerUsesSharedMigrationPlan(migratedContainer))
         #expect(exercises.map(\.name) == ["V3 Migration Press"])
         #expect(exercises.map(\.weightUnit) == [.pounds])
+        #expect(snapshots.map(\.exerciseNameSnapshot) == ["V3 Migration Press"])
+        #expect(snapshots.map(\.weightUnit) == [.pounds])
 
         migratedContext.insert(
             WatchSetSubmissionRecord(

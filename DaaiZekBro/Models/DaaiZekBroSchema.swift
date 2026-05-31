@@ -377,7 +377,7 @@ enum DaaiZekBroSchemaV3: VersionedSchema {
         var exerciseNameSnapshot: String = ""
         var defaultRestSecondsSnapshot: Int = 90
         var isUnilateralSnapshot: Bool = false
-        var weightUnitRawValue: String = WeightUnit.defaultUnit.rawValue
+        var weightUnitRawValueSnapshot: String = WeightUnit.defaultUnit.rawValue
         var orderIndex: Int = 0
 
         init() {}
