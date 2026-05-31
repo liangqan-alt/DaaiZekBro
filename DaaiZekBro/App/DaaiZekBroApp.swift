@@ -28,6 +28,7 @@ struct DaaiZekBroApp: App {
                 .tint(DZColor.pump500)
                 .onAppear {
                     appDelegate.notificationRouter = notificationRouter
+                    PhoneWatchTrainingStateSync.shared.activate()
                 }
                 .modelContainer(container)
         case .failure(let failure):

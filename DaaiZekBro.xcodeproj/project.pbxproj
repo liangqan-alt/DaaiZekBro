@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		A453CD032FBDF94900003CD5 /* DaaiZekBroWatch.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = A453CD062FBDF94900003CD5 /* DaaiZekBroWatch.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		A453CCE62FBDF94900003CD5 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -21,12 +25,34 @@
 			remoteGlobalIDString = A453CCD32FBDF94800003CD5;
 			remoteInfo = DaaiZekBro;
 		};
+		A453CD042FBDF94900003CD5 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A453CCCC2FBDF94800003CD5 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A453CD092FBDF94900003CD5;
+			remoteInfo = DaaiZekBroWatch;
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		A453CD052FBDF94900003CD5 /* Embed Watch Content */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(CONTENTS_FOLDER_PATH)/Watch";
+			dstSubfolderSpec = 16;
+			files = (
+				A453CD032FBDF94900003CD5 /* DaaiZekBroWatch.app in Embed Watch Content */,
+			);
+			name = "Embed Watch Content";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		A453CCD42FBDF94800003CD5 /* DaaiZekBro.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DaaiZekBro.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A453CCE52FBDF94900003CD5 /* DaaiZekBroTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DaaiZekBroTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A453CCEF2FBDF94900003CD5 /* DaaiZekBroUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DaaiZekBroUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A453CD062FBDF94900003CD5 /* DaaiZekBroWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = DaaiZekBroWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -36,6 +62,13 @@
 				Info.plist,
 			);
 			target = A453CCD32FBDF94800003CD5 /* DaaiZekBro */;
+		};
+		A453CD112FBDF94900003CD5 /* Exceptions for "DaaiZekBroWatch" folder in "DaaiZekBroWatch" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = A453CD092FBDF94900003CD5 /* DaaiZekBroWatch */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -56,6 +89,20 @@
 		A453CCF22FBDF94900003CD5 /* DaaiZekBroUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = DaaiZekBroUITests;
+			sourceTree = "<group>";
+		};
+		A453CD072FBDF94900003CD5 /* DaaiZekBroWatch */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				A453CD112FBDF94900003CD5 /* Exceptions for "DaaiZekBroWatch" folder in "DaaiZekBroWatch" target */,
+			);
+			path = DaaiZekBroWatch;
+			sourceTree = "<group>";
+		};
+		A453CD102FBDF94900003CD5 /* Shared */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			name = Shared;
+			path = DaaiZekBro/Shared;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -82,6 +129,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A453CD082FBDF94900003CD5 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -89,6 +143,8 @@
 			isa = PBXGroup;
 			children = (
 				A453CCD62FBDF94800003CD5 /* DaaiZekBro */,
+				A453CD102FBDF94900003CD5 /* Shared */,
+				A453CD072FBDF94900003CD5 /* DaaiZekBroWatch */,
 				A453CCE82FBDF94900003CD5 /* DaaiZekBroTests */,
 				A453CCF22FBDF94900003CD5 /* DaaiZekBroUITests */,
 				A453CCD52FBDF94800003CD5 /* Products */,
@@ -99,6 +155,7 @@
 			isa = PBXGroup;
 			children = (
 				A453CCD42FBDF94800003CD5 /* DaaiZekBro.app */,
+				A453CD062FBDF94900003CD5 /* DaaiZekBroWatch.app */,
 				A453CCE52FBDF94900003CD5 /* DaaiZekBroTests.xctest */,
 				A453CCEF2FBDF94900003CD5 /* DaaiZekBroUITests.xctest */,
 			);
@@ -115,10 +172,12 @@
 				A453CCD02FBDF94800003CD5 /* Sources */,
 				A453CCD12FBDF94800003CD5 /* Frameworks */,
 				A453CCD22FBDF94800003CD5 /* Resources */,
+				A453CD052FBDF94900003CD5 /* Embed Watch Content */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				A453CD0C2FBDF94900003CD5 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				A453CCD62FBDF94800003CD5 /* DaaiZekBro */,
@@ -128,6 +187,29 @@
 			);
 			productName = DaaiZekBro;
 			productReference = A453CCD42FBDF94800003CD5 /* DaaiZekBro.app */;
+			productType = "com.apple.product-type.application";
+		};
+		A453CD092FBDF94900003CD5 /* DaaiZekBroWatch */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A453CD0F2FBDF94900003CD5 /* Build configuration list for PBXNativeTarget "DaaiZekBroWatch" */;
+			buildPhases = (
+				A453CD0B2FBDF94900003CD5 /* Sources */,
+				A453CD082FBDF94900003CD5 /* Frameworks */,
+				A453CD0A2FBDF94900003CD5 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				A453CD072FBDF94900003CD5 /* DaaiZekBroWatch */,
+				A453CD102FBDF94900003CD5 /* Shared */,
+			);
+			name = DaaiZekBroWatch;
+			packageProductDependencies = (
+			);
+			productName = DaaiZekBroWatch;
+			productReference = A453CD062FBDF94900003CD5 /* DaaiZekBroWatch.app */;
 			productType = "com.apple.product-type.application";
 		};
 		A453CCE42FBDF94900003CD5 /* DaaiZekBroTests */ = {
@@ -189,6 +271,9 @@
 					A453CCD32FBDF94800003CD5 = {
 						CreatedOnToolsVersion = 26.5;
 					};
+					A453CD092FBDF94900003CD5 = {
+						CreatedOnToolsVersion = 26.5;
+					};
 					A453CCE42FBDF94900003CD5 = {
 						CreatedOnToolsVersion = 26.5;
 						TestTargetID = A453CCD32FBDF94800003CD5;
@@ -214,6 +299,7 @@
 			projectRoot = "";
 			targets = (
 				A453CCD32FBDF94800003CD5 /* DaaiZekBro */,
+				A453CD092FBDF94900003CD5 /* DaaiZekBroWatch */,
 				A453CCE42FBDF94900003CD5 /* DaaiZekBroTests */,
 				A453CCEE2FBDF94900003CD5 /* DaaiZekBroUITests */,
 			);
@@ -236,6 +322,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		A453CCED2FBDF94900003CD5 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A453CD0A2FBDF94900003CD5 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -266,6 +359,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A453CD0B2FBDF94900003CD5 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -278,6 +378,11 @@
 			isa = PBXTargetDependency;
 			target = A453CCD32FBDF94800003CD5 /* DaaiZekBro */;
 			targetProxy = A453CCF02FBDF94900003CD5 /* PBXContainerItemProxy */;
+		};
+		A453CD0C2FBDF94900003CD5 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A453CD092FBDF94900003CD5 /* DaaiZekBroWatch */;
+			targetProxy = A453CD042FBDF94900003CD5 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -367,6 +472,68 @@
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2,7";
 				XROS_DEPLOYMENT_TARGET = 26.5;
+			};
+			name = Release;
+		};
+		A453CD0D2FBDF94900003CD5 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = KMVXHQY3PA;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = DaaiZekBroWatch;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.liangqan.DaaiZekBro;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.liangqan.DaaiZekBro.watchkitapp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "watchos watchsimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
+			};
+			name = Debug;
+		};
+		A453CD0E2FBDF94900003CD5 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = KMVXHQY3PA;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = DaaiZekBroWatch;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = com.liangqan.DaaiZekBro;
+				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.liangqan.DaaiZekBro.watchkitapp;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "watchos watchsimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				WATCHOS_DEPLOYMENT_TARGET = 10.0;
 			};
 			name = Release;
 		};
@@ -599,6 +766,15 @@
 			buildConfigurations = (
 				A453CCF92FBDF94900003CD5 /* Debug */,
 				A453CCFA2FBDF94900003CD5 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A453CD0F2FBDF94900003CD5 /* Build configuration list for PBXNativeTarget "DaaiZekBroWatch" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A453CD0D2FBDF94900003CD5 /* Debug */,
+				A453CD0E2FBDF94900003CD5 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

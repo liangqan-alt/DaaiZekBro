@@ -439,6 +439,7 @@ struct TemplateListView: View {
                 startedAt: AppLaunchConfiguration.now()
             ) {
             case .started(let session):
+                PhoneWatchTrainingStateSync.shared.refresh(in: modelContext)
                 path.append(.currentWorkout(sessionID: session.id))
             case .conflict:
                 pendingTemplateName = template.name
@@ -484,8 +485,10 @@ struct TemplateListView: View {
                 resolvedAt: AppLaunchConfiguration.now()
             )
             pendingTemplateName = nil
+            PhoneWatchTrainingStateSync.shared.refresh(in: modelContext)
             path.append(.currentWorkout(sessionID: newSession.id))
         } catch {
+            PhoneWatchTrainingStateSync.shared.refresh(in: modelContext)
             errorMessage = error.localizedDescription
         }
     }

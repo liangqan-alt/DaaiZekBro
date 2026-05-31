@@ -64,6 +64,9 @@ struct ContentView: View {
 
     @MainActor
     private func writeSeedData() async {
+        PhoneWatchTrainingStateSync.shared.bind(modelContext: modelContext)
+        PhoneWatchTrainingStateSync.shared.activate()
+
         do {
             #if DEBUG
             if let fixtureName = AppLaunchConfiguration.uiFixtureName {
@@ -76,12 +79,14 @@ struct ContentView: View {
                     in: modelContext
                 )
                 seedStatus = .ready
+                PhoneWatchTrainingStateSync.shared.refresh(in: modelContext)
                 return
             }
             #endif
 
             try SeedData.writeAndDedup(in: modelContext)
             seedStatus = .ready
+            PhoneWatchTrainingStateSync.shared.refresh(in: modelContext)
         } catch {
             seedStatus = .failed(error.localizedDescription)
         }

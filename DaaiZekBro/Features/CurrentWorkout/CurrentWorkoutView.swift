@@ -152,6 +152,7 @@ struct CurrentWorkoutView: View {
         do {
             try WorkoutSessionLifecycle.end(session, in: modelContext)
             UserNotificationRestScheduler.cancelPendingRestCompletionNotification()
+            PhoneWatchTrainingStateSync.shared.refresh(in: modelContext)
             path.removeAll()
         } catch {
             errorMessage = error.localizedDescription
@@ -162,6 +163,7 @@ struct CurrentWorkoutView: View {
         do {
             try WorkoutSessionLifecycle.discard(session, in: modelContext)
             UserNotificationRestScheduler.cancelPendingRestCompletionNotification()
+            PhoneWatchTrainingStateSync.shared.refresh(in: modelContext)
             path.removeAll()
         } catch {
             errorMessage = error.localizedDescription
