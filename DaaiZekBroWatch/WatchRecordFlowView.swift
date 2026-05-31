@@ -1,7 +1,12 @@
+import Combine
+import Foundation
 import SwiftUI
+import UserNotifications
 import WatchKit
 
 struct WatchRecordFlowView: View {
+    @Environment(\.scenePhase) private var scenePhase
+
     let snapshot: WatchWorkoutSnapshot
     let exercise: WatchWorkoutSnapshot.Exercise
     @ObservedObject var sessionManager: WatchSessionManager
@@ -15,10 +20,75 @@ struct WatchRecordFlowView: View {
     @State private var isSubmitting = false
     @State private var feedback: SubmissionFeedback?
     @State private var submitTask: Task<Void, Never>?
+    @State private var restTimerCore = WatchRestTimerCore()
+    @State private var restTimerState: WatchRestTimerState?
+    @State private var restTimerPermissionTask: Task<Void, Never>?
+    @State private var restTimerHapticStatus = WatchRestTimerHapticStatus.pending
+    @State private var deferredHapticAuthorization = DeferredHapticAuthorization.unknown
+    @State private var lastScenePhase: ScenePhase = .active
+    @State private var isResolvingRestTimerActivation = false
 
     private let rpeValues = [6, 7, 8, 9, 10]
+    private let restTimerTicker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
+        Group {
+            if let restTimerState {
+                WatchRestTimerView(
+                    state: restTimerState,
+                    hapticStatusText: restTimerHapticStatusText,
+                    addThirtySeconds: addThirtySecondsToRestTimer,
+                    skip: clearRestTimer,
+                    next: clearRestTimer
+                )
+            } else {
+                recordForm
+            }
+        }
+        .background(WatchPalette.oledBlack.ignoresSafeArea())
+        .navigationTitle(exercise.name)
+        .tint(WatchPalette.pump)
+        .onAppear {
+            selectedSide = sessionManager.inferredNextSide(for: currentExercise)
+            lastScenePhase = scenePhase
+            refreshRestTimer(at: Date(), isActive: scenePhase == .active)
+        }
+        .onChange(of: currentExercise.completedSetCount) { _, _ in
+            guard exercise.isUnilateral, isSubmitting == false else {
+                return
+            }
+
+            selectedSide = sessionManager.inferredNextSide(for: currentExercise)
+        }
+        .onChange(of: scenePhase) { _, nextPhase in
+            let previousPhase = lastScenePhase
+            lastScenePhase = nextPhase
+
+            if nextPhase == .active {
+                refreshRestTimerAfterActivation(wasInactive: previousPhase != .active)
+            } else {
+                refreshRestTimer(at: Date(), isActive: false)
+            }
+        }
+        .onReceive(restTimerTicker) { date in
+            guard scenePhase == .active else {
+                return
+            }
+
+            if isResolvingRestTimerActivation {
+                refreshRestTimerDisplay(at: date)
+            } else {
+                refreshRestTimer(at: date, isActive: true)
+            }
+        }
+        .onDisappear {
+            submitTask?.cancel()
+            restTimerPermissionTask?.cancel()
+            isResolvingRestTimerActivation = false
+        }
+    }
+
+    private var recordForm: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 8) {
                 referenceCard
@@ -45,22 +115,7 @@ struct WatchRecordFlowView: View {
         }
         .background(WatchPalette.oledBlack.ignoresSafeArea())
         .scrollContentBackground(.hidden)
-        .navigationTitle(exercise.name)
-        .tint(WatchPalette.pump)
         .disabled(isSubmitting)
-        .onAppear {
-            selectedSide = sessionManager.inferredNextSide(for: currentExercise)
-        }
-        .onChange(of: currentExercise.completedSetCount) { _, _ in
-            guard exercise.isUnilateral, isSubmitting == false else {
-                return
-            }
-
-            selectedSide = sessionManager.inferredNextSide(for: currentExercise)
-        }
-        .onDisappear {
-            submitTask?.cancel()
-        }
     }
 
     private var currentExercise: WatchWorkoutSnapshot.Exercise {
@@ -402,7 +457,10 @@ struct WatchRecordFlowView: View {
                 )
                 try Task.checkCancellation()
                 await MainActor.run {
-                    handleSubmissionSuccess()
+                    handleSubmissionSuccess(
+                        submittedDraft: draft,
+                        submittedExercise: exerciseForSubmission
+                    )
                 }
             } catch is CancellationError {
                 await MainActor.run {
@@ -416,11 +474,15 @@ struct WatchRecordFlowView: View {
         }
     }
 
-    private func handleSubmissionSuccess() {
+    private func handleSubmissionSuccess(
+        submittedDraft: WatchRecordDraft,
+        submittedExercise: WatchWorkoutSnapshot.Exercise
+    ) {
         isSubmitting = false
         feedback = SubmissionFeedback(message: "已同步", isSuccess: true)
         WKInterfaceDevice.current().play(.success)
         resetDraft()
+        startRestTimerIfNeeded(after: submittedDraft, exercise: submittedExercise)
 
         if exercise.isUnilateral {
             selectedSide = sessionManager.inferredNextSide(for: currentExercise)
@@ -444,11 +506,197 @@ struct WatchRecordFlowView: View {
     private static func normalizedWeight(_ value: Double) -> Double {
         min(500, max(0, (value / 2.5).rounded() * 2.5))
     }
+
+    private func startRestTimerIfNeeded(
+        after draft: WatchRecordDraft,
+        exercise: WatchWorkoutSnapshot.Exercise
+    ) {
+        guard WatchRestTimerStartPolicy.shouldStartAfterCompletedSet(
+            isUnilateral: exercise.isUnilateral,
+            completedSide: Self.completedSide(from: draft.side)
+        ) else {
+            return
+        }
+
+        restTimerHapticStatus = .pending
+        deferredHapticAuthorization = .unknown
+        isResolvingRestTimerActivation = false
+        restTimerPermissionTask?.cancel()
+
+        let startedAt = Date()
+        _ = restTimerCore.start(
+            sessionID: snapshot.sessionID,
+            exerciseOrderIndex: exercise.exerciseOrderIndex,
+            exerciseName: exercise.name,
+            restSeconds: exercise.defaultRestSeconds,
+            startedAt: startedAt,
+            now: startedAt
+        )
+        restTimerState = restTimerCore.state
+        updateDeferredHapticAuthorization()
+    }
+
+    private func refreshRestTimer(at date: Date, isActive: Bool, crossedInactive: Bool = false) {
+        guard restTimerState != nil else {
+            return
+        }
+
+        if crossedInactive {
+            let inactiveEffect = restTimerCore.refresh(
+                now: date,
+                isActive: false,
+                canNotify: deferredHapticAuthorization == .allowed
+            )
+            restTimerState = restTimerCore.state
+            handleRestTimerEffect(inactiveEffect)
+        }
+
+        let effect = restTimerCore.refresh(
+            now: date,
+            isActive: isActive,
+            canNotify: deferredHapticAuthorization == .allowed
+        )
+        restTimerState = restTimerCore.state
+        handleRestTimerEffect(effect)
+    }
+
+    private func refreshRestTimerDisplay(at date: Date) {
+        restTimerState = restTimerCore.displayState(now: date)
+    }
+
+    private func addThirtySecondsToRestTimer() {
+        _ = restTimerCore.addThirtySeconds(now: Date())
+        restTimerState = restTimerCore.state
+        restTimerHapticStatus = .pending
+    }
+
+    private func clearRestTimer() {
+        restTimerCore.skip()
+        restTimerState = restTimerCore.state
+        restTimerHapticStatus = .pending
+        deferredHapticAuthorization = .unknown
+        isResolvingRestTimerActivation = false
+        restTimerPermissionTask?.cancel()
+        restTimerPermissionTask = nil
+    }
+
+    private func handleRestTimerEffect(_ effect: WatchRestTimerEffect) {
+        switch effect {
+        case .none:
+            if restTimerState?.isZeroed == true, deferredHapticAuthorization == .denied {
+                restTimerHapticStatus = .unauthorized
+            }
+        case .playCompletionHaptic:
+            WKInterfaceDevice.current().play(.notification)
+            restTimerHapticStatus = .reminded
+        }
+    }
+
+    private func updateDeferredHapticAuthorization() {
+        guard restTimerState != nil, deferredHapticAuthorization == .unknown else {
+            return
+        }
+
+        restTimerPermissionTask?.cancel()
+        restTimerPermissionTask = Task {
+            let isAllowed = await Self.isDeferredHapticAuthorized()
+
+            await MainActor.run {
+                deferredHapticAuthorization = isAllowed ? .allowed : .denied
+                refreshRestTimer(at: Date(), isActive: lastScenePhase == .active)
+            }
+        }
+    }
+
+    private func refreshRestTimerAfterActivation(wasInactive: Bool) {
+        guard restTimerState != nil else {
+            isResolvingRestTimerActivation = false
+            return
+        }
+
+        guard wasInactive else {
+            isResolvingRestTimerActivation = false
+            refreshRestTimer(at: Date(), isActive: true)
+            return
+        }
+
+        isResolvingRestTimerActivation = true
+        refreshRestTimerDisplay(at: Date())
+        restTimerPermissionTask?.cancel()
+        restTimerPermissionTask = Task {
+            let isAllowed = await Self.isDeferredHapticAuthorized()
+
+            await MainActor.run {
+                guard Task.isCancelled == false, restTimerState != nil, lastScenePhase == .active else {
+                    isResolvingRestTimerActivation = false
+                    return
+                }
+
+                deferredHapticAuthorization = isAllowed ? .allowed : .denied
+                refreshRestTimer(at: Date(), isActive: true, crossedInactive: wasInactive)
+                isResolvingRestTimerActivation = false
+            }
+        }
+    }
+
+    private var restTimerHapticStatusText: String {
+        switch restTimerHapticStatus {
+        case .pending:
+            deferredHapticAuthorization == .denied ? "未授权 · 仅展示归零" : "已归零"
+        case .reminded:
+            "已震动提醒"
+        case .unauthorized:
+            "未授权 · 仅展示归零"
+        }
+    }
+
+    private static func completedSide(from side: String?) -> WatchRestTimerCompletedSide? {
+        switch side {
+        case "left":
+            .left
+        case "right":
+            .right
+        default:
+            nil
+        }
+    }
+
+    private static func isDeferredHapticAuthorized() async -> Bool {
+        let center = UNUserNotificationCenter.current()
+        let settings = await center.notificationSettings()
+
+        switch settings.authorizationStatus {
+        case .authorized, .provisional, .ephemeral:
+            return true
+        case .notDetermined:
+            do {
+                return try await center.requestAuthorization(options: [.alert, .sound])
+            } catch {
+                return false
+            }
+        case .denied:
+            return false
+        @unknown default:
+            return false
+        }
+    }
 }
 
 private struct SubmissionFeedback: Equatable {
     let message: String
     let isSuccess: Bool
+}
+
+private enum WatchRestTimerHapticStatus {
+    case pending
+    case reminded
+    case unauthorized
+}
+
+private enum DeferredHapticAuthorization {
+    case unknown
+    case allowed
+    case denied
 }
 
 private enum WatchRecordFormat {
