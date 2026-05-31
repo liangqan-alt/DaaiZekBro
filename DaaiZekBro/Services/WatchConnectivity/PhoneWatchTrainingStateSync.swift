@@ -41,12 +41,12 @@ final class PhoneWatchTrainingStateSync {
 
     init(
         transport: PhoneWatchTrainingStateTransport,
-        source: PhoneTrainingStateSource = .live,
+        source: PhoneTrainingStateSource? = nil,
         now: @escaping @MainActor () -> Date = Date.init,
         makeRequestID: @escaping @MainActor () -> String = { UUID().uuidString }
     ) {
         self.transport = transport
-        self.source = source
+        self.source = source ?? .live
         self.now = now
         self.makeRequestID = makeRequestID
     }
@@ -94,20 +94,14 @@ final class PhoneWatchTrainingStateSync {
             return
         }
 
-        let isTraining: Bool
+        let message: WatchTrainingStateMessage
 
         do {
-            isTraining = try source.isTraining(context)
+            message = try makeUpdateMessage(in: context)
         } catch {
             latestDiagnostic = .sourceFailed(error.localizedDescription)
             return
         }
-
-        let message = WatchTrainingStateMessage.update(
-            requestID: makeRequestID(),
-            sentAt: now().timeIntervalSince1970,
-            isTraining: isTraining
-        )
 
         do {
             try transport.updateApplicationContext(message.propertyList)
@@ -137,11 +131,7 @@ final class PhoneWatchTrainingStateSync {
                 return
             }
 
-            let response = WatchTrainingStateMessage.response(
-                requestID: request.requestID ?? "",
-                sentAt: now().timeIntervalSince1970,
-                isTraining: try source.isTraining(context)
-            )
+            let response = try makeResponseMessage(requestID: request.requestID ?? "", in: context)
             reply(response.propertyList)
             latestDiagnostic = nil
         } catch let error as WatchTrainingStateMessage.ParseError {
@@ -155,6 +145,38 @@ final class PhoneWatchTrainingStateSync {
         guard modelContext != nil else { return }
 
         refresh()
+    }
+
+    private func makeUpdateMessage(in context: ModelContext) throws -> WatchTrainingStateMessage {
+        let snapshot = try source.currentSnapshot(context)
+        let isTraining = try isTraining(snapshot: snapshot, in: context)
+
+        return WatchTrainingStateMessage.update(
+            requestID: makeRequestID(),
+            sentAt: now().timeIntervalSince1970,
+            isTraining: isTraining,
+            snapshot: snapshot
+        )
+    }
+
+    private func makeResponseMessage(requestID: String, in context: ModelContext) throws -> WatchTrainingStateMessage {
+        let snapshot = try source.currentSnapshot(context)
+        let isTraining = try isTraining(snapshot: snapshot, in: context)
+
+        return WatchTrainingStateMessage.response(
+            requestID: requestID,
+            sentAt: now().timeIntervalSince1970,
+            isTraining: isTraining,
+            snapshot: snapshot
+        )
+    }
+
+    private func isTraining(snapshot: WatchWorkoutSnapshot?, in context: ModelContext) throws -> Bool {
+        if snapshot != nil {
+            return true
+        }
+
+        return try source.isTraining(context)
     }
 }
 

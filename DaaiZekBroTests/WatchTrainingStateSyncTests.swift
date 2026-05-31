@@ -39,9 +39,41 @@ struct WatchTrainingStateMessageTests {
         #expect(update.propertyList["kind"] as? String == "trainingState.update")
     }
 
+    @Test func snapshotMessageRoundTripsThroughPropertyList() throws {
+        let snapshot = makeWatchSnapshot()
+        let response = WatchTrainingStateMessage.response(
+            requestID: "snapshot-request",
+            sentAt: 1_800_000_002,
+            isTraining: true,
+            snapshot: snapshot
+        )
+        let update = WatchTrainingStateMessage.update(
+            requestID: "snapshot-update",
+            sentAt: 1_800_000_003,
+            isTraining: true,
+            snapshot: snapshot
+        )
+
+        #expect(try WatchTrainingStateMessage(propertyList: response.propertyList) == response)
+        #expect(try WatchTrainingStateMessage(propertyList: update.propertyList) == update)
+        #expect(try #require(WatchTrainingStateMessage(propertyList: response.propertyList).snapshot) == snapshot)
+        #expect(try #require(WatchTrainingStateMessage(propertyList: update.propertyList).snapshot) == snapshot)
+    }
+
+    @Test func workoutSnapshotRoundTripsThroughPropertyList() throws {
+        let snapshot = makeWatchSnapshot()
+
+        let decoded = try WatchWorkoutSnapshot(propertyList: snapshot.propertyList)
+
+        #expect(decoded == snapshot)
+        #expect(decoded.sessionName == "Push A")
+        #expect(decoded.exercises.map(\.exerciseOrderIndex) == [0, 1])
+        #expect(decoded.exercises.map(\.completedSetCount) == [3, 0])
+    }
+
     @Test func invalidFieldsFailDecoding() {
         expectParseError(.invalidSchemaVersion) {
-            try WatchTrainingStateMessage(propertyList: [
+            _ = try WatchTrainingStateMessage(propertyList: [
                 "schemaVersion": 2,
                 "kind": "trainingState.request",
                 "requestID": "request-1",
@@ -50,7 +82,7 @@ struct WatchTrainingStateMessageTests {
         }
 
         expectParseError(.invalidKind) {
-            try WatchTrainingStateMessage(propertyList: [
+            _ = try WatchTrainingStateMessage(propertyList: [
                 "schemaVersion": 1,
                 "kind": "trainingState.unknown",
                 "requestID": "request-1",
@@ -59,7 +91,7 @@ struct WatchTrainingStateMessageTests {
         }
 
         expectParseError(.invalidIsTraining) {
-            try WatchTrainingStateMessage(propertyList: [
+            _ = try WatchTrainingStateMessage(propertyList: [
                 "schemaVersion": 1,
                 "kind": "trainingState.response",
                 "requestID": "request-1",
@@ -68,7 +100,7 @@ struct WatchTrainingStateMessageTests {
         }
 
         expectParseError(.unexpectedIsTraining) {
-            try WatchTrainingStateMessage(propertyList: [
+            _ = try WatchTrainingStateMessage(propertyList: [
                 "schemaVersion": 1,
                 "kind": "trainingState.request",
                 "requestID": "request-1",
@@ -112,6 +144,65 @@ struct PhoneTrainingStateSourceTests {
         #expect(try PhoneTrainingStateSource.live.isTraining(context) == true)
     }
 
+    @Test func sourceBuildsCurrentSnapshotAndCountsDuplicateNamesByOrderIndex() throws {
+        let context = try makeInMemoryContext()
+        let session = try makeSession(
+            templateName: "Pull A",
+            exercises: [
+                Exercise(name: "Cable Row", defaultRestSeconds: 90, isUnilateral: false, weightUnit: .kilograms),
+                Exercise(name: "Cable Row", defaultRestSeconds: 120, isUnilateral: true, weightUnit: .pounds),
+            ],
+            in: context
+        )
+
+        _ = try WorkoutSetLogging.recordSet(
+            sessionID: session.id,
+            exerciseOrderIndex: 0,
+            exerciseName: "Cable Row",
+            weight: 40,
+            reps: 10,
+            rpe: nil,
+            side: nil,
+            completedAt: Date(timeIntervalSince1970: 100),
+            in: context
+        )
+        _ = try WorkoutSetLogging.recordSet(
+            sessionID: session.id,
+            exerciseOrderIndex: 1,
+            exerciseName: "Cable Row",
+            weight: 45,
+            reps: 8,
+            rpe: nil,
+            side: .left,
+            completedAt: Date(timeIntervalSince1970: 110),
+            in: context
+        )
+        _ = try WorkoutSetLogging.recordSet(
+            sessionID: session.id,
+            exerciseOrderIndex: 0,
+            exerciseName: "Cable Row",
+            weight: 42.5,
+            reps: 9,
+            rpe: nil,
+            side: nil,
+            completedAt: Date(timeIntervalSince1970: 120),
+            in: context
+        )
+
+        let maybeSnapshot = try PhoneTrainingStateSource.live.currentSnapshot(context)
+        let snapshot = try #require(maybeSnapshot)
+
+        #expect(snapshot.sessionID == session.id.uuidString)
+        #expect(snapshot.sessionName == "Pull A")
+        #expect(snapshot.startedAt == session.startedAt.timeIntervalSince1970)
+        #expect(snapshot.exercises.map(\.exerciseOrderIndex) == [0, 1])
+        #expect(snapshot.exercises.map(\.name) == ["Cable Row", "Cable Row"])
+        #expect(snapshot.exercises.map(\.completedSetCount) == [2, 1])
+        #expect(snapshot.exercises.map(\.isUnilateral) == [false, true])
+        #expect(snapshot.exercises.map(\.defaultRestSeconds) == [90, 120])
+        #expect(snapshot.exercises.map(\.weightUnit) == ["kg", "lb"])
+    }
+
     @Test func sourceReturnsFalseAfterEndAndDiscard() throws {
         let context = try makeInMemoryContext()
         let template = Template(name: "Push A", stableID: "template-push-a")
@@ -122,11 +213,13 @@ struct PhoneTrainingStateSourceTests {
         try WorkoutSessionLifecycle.end(endedSession, in: context)
 
         #expect(try PhoneTrainingStateSource.live.isTraining(context) == false)
+        #expect(try PhoneTrainingStateSource.live.currentSnapshot(context) == nil)
 
         let discardedSession = try WorkoutSessionLifecycle.createSession(for: template, in: context)
         try WorkoutSessionLifecycle.discard(discardedSession, in: context)
 
         #expect(try PhoneTrainingStateSource.live.isTraining(context) == false)
+        #expect(try PhoneTrainingStateSource.live.currentSnapshot(context) == nil)
     }
 }
 
@@ -156,20 +249,40 @@ struct PhoneWatchTrainingStateSyncTests {
         #expect(sync.latestDiagnostic == nil)
     }
 
+    @Test func refreshPublishesNoTrainingWithoutSnapshot() throws {
+        let context = try makeInMemoryContext()
+        let transport = FakePhoneWatchTrainingStateTransport()
+        let sync = PhoneWatchTrainingStateSync(
+            transport: transport,
+            source: PhoneTrainingStateSource { _ in false },
+            now: { Date(timeIntervalSince1970: 1_800_000_015) },
+            makeRequestID: { "idle-update" }
+        )
+
+        sync.bind(modelContext: context)
+        sync.activate()
+        sync.refresh()
+
+        let update = try #require(try transport.latestTrainingStateMessage())
+        #expect(update.kind == .update)
+        #expect(update.requestID == "idle-update")
+        #expect(update.isTraining == false)
+        #expect(update.snapshot == nil)
+        #expect(sync.latestDiagnostic == nil)
+    }
+
     @Test func activationSuccessPublishesLatestTrainingState() throws {
         let context = try makeInMemoryContext()
         let transport = FakePhoneWatchTrainingStateTransport()
-        var isTraining = false
         let sync = PhoneWatchTrainingStateSync(
             transport: transport,
-            source: PhoneTrainingStateSource { _ in isTraining },
+            source: PhoneTrainingStateSource { _ in true },
             now: { Date(timeIntervalSince1970: 1_800_000_012) },
             makeRequestID: { "activation-update" }
         )
 
         sync.bind(modelContext: context)
         sync.activate()
-        isTraining = true
         transport.completeActivationSuccessfully()
 
         #expect(transport.applicationContexts.count == 1)
@@ -179,6 +292,29 @@ struct PhoneWatchTrainingStateSyncTests {
         #expect(update.kind == .update)
         #expect(update.requestID == "activation-update")
         #expect(update.isTraining == true)
+        #expect(sync.latestDiagnostic == nil)
+    }
+
+    @Test func refreshPublishesSnapshotWhenSourceProvidesOne() throws {
+        let context = try makeInMemoryContext()
+        let transport = FakePhoneWatchTrainingStateTransport()
+        let snapshot = makeWatchSnapshot()
+        let sync = PhoneWatchTrainingStateSync(
+            transport: transport,
+            source: PhoneTrainingStateSource(currentSnapshot: { _ in snapshot }),
+            now: { Date(timeIntervalSince1970: 1_800_000_013) },
+            makeRequestID: { "snapshot-update" }
+        )
+
+        sync.bind(modelContext: context)
+        sync.activate()
+        sync.refresh()
+
+        let update = try #require(try transport.latestTrainingStateMessage())
+        #expect(update.kind == .update)
+        #expect(update.requestID == "snapshot-update")
+        #expect(update.isTraining == true)
+        #expect(update.snapshot == snapshot)
         #expect(sync.latestDiagnostic == nil)
     }
 
@@ -251,6 +387,59 @@ struct PhoneWatchTrainingStateSyncTests {
         #expect(sync.latestDiagnostic == nil)
     }
 
+    @Test func requestReplyReturnsNoTrainingWithoutSnapshot() throws {
+        let context = try makeInMemoryContext()
+        let transport = FakePhoneWatchTrainingStateTransport()
+        let sync = PhoneWatchTrainingStateSync(
+            transport: transport,
+            source: PhoneTrainingStateSource { _ in false },
+            now: { Date(timeIntervalSince1970: 1_800_000_016) }
+        )
+        let request = WatchTrainingStateMessage.request(
+            requestID: "watch-idle-request",
+            sentAt: 1_800_000_000
+        )
+
+        sync.bind(modelContext: context)
+        sync.activate()
+
+        let reply = try #require(transport.receive(request.propertyList))
+        let response = try WatchTrainingStateMessage(propertyList: reply)
+
+        #expect(response.kind == .response)
+        #expect(response.requestID == "watch-idle-request")
+        #expect(response.isTraining == false)
+        #expect(response.snapshot == nil)
+        #expect(sync.latestDiagnostic == nil)
+    }
+
+    @Test func requestReplyIncludesCurrentSnapshot() throws {
+        let context = try makeInMemoryContext()
+        let transport = FakePhoneWatchTrainingStateTransport()
+        let snapshot = makeWatchSnapshot()
+        let sync = PhoneWatchTrainingStateSync(
+            transport: transport,
+            source: PhoneTrainingStateSource(currentSnapshot: { _ in snapshot }),
+            now: { Date(timeIntervalSince1970: 1_800_000_014) }
+        )
+        let request = WatchTrainingStateMessage.request(
+            requestID: "watch-snapshot-request",
+            sentAt: 1_800_000_000
+        )
+
+        sync.bind(modelContext: context)
+        sync.activate()
+
+        let reply = try #require(transport.receive(request.propertyList))
+        let response = try WatchTrainingStateMessage(propertyList: reply)
+
+        #expect(response.kind == .response)
+        #expect(response.requestID == "watch-snapshot-request")
+        #expect(response.isTraining == true)
+        #expect(response.snapshot == snapshot)
+        #expect(sync.latestDiagnostic == nil)
+    }
+
     @Test func publishErrorIsDiagnosticAndDoesNotThrow() throws {
         let context = try makeInMemoryContext()
         let transport = FakePhoneWatchTrainingStateTransport()
@@ -273,7 +462,7 @@ struct PhoneWatchTrainingStateSyncTests {
         let transport = FakePhoneWatchTrainingStateTransport()
         let sync = PhoneWatchTrainingStateSync(
             transport: transport,
-            source: PhoneTrainingStateSource { _ in
+            source: PhoneTrainingStateSource { _ -> Bool in
                 throw SentinelWatchSyncError.sourceFailed
             }
         )
@@ -305,6 +494,52 @@ private func makeInMemoryContext() throws -> ModelContext {
     let container = try DaaiZekBroSchema.makeModelContainer(isStoredInMemoryOnly: true)
 
     return ModelContext(container)
+}
+
+@MainActor
+private func makeSession(
+    templateName: String,
+    exercises: [Exercise],
+    in context: ModelContext
+) throws -> WorkoutSession {
+    let template = Template(name: templateName)
+
+    context.insert(template)
+
+    for (index, exercise) in exercises.enumerated() {
+        context.insert(exercise)
+        context.insert(TemplateExercise(template: template, exercise: exercise, orderIndex: index))
+    }
+
+    try context.save()
+
+    return try WorkoutSessionLifecycle.createSession(for: template, in: context)
+}
+
+private func makeWatchSnapshot() -> WatchWorkoutSnapshot {
+    WatchWorkoutSnapshot(
+        sessionID: "00000000-0000-0000-0000-000000000011",
+        sessionName: "Push A",
+        startedAt: 1_800_000_004,
+        exercises: [
+            WatchWorkoutSnapshot.Exercise(
+                exerciseOrderIndex: 0,
+                name: "Bench Press",
+                completedSetCount: 3,
+                weightUnit: "kg",
+                isUnilateral: false,
+                defaultRestSeconds: 120
+            ),
+            WatchWorkoutSnapshot.Exercise(
+                exerciseOrderIndex: 1,
+                name: "Lateral Raise",
+                completedSetCount: 0,
+                weightUnit: "lb",
+                isUnilateral: true,
+                defaultRestSeconds: 60
+            ),
+        ]
+    )
 }
 
 @MainActor
